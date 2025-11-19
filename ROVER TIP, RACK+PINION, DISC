@@ -1,0 +1,151 @@
+//Program for rack and pinion with Tip
+#define BLYNK_TEMPLATE_ID "TMPL3nojIAp_A"
+#define BLYNK_TEMPLATE_NAME "360 SERVO"
+#define BLYNK_AUTH_TOKEN "AVE7vLWqq4VVlx_2i5ZI-ohQGDD9YRCP"
+
+#define BLYNK_PRINT Serial
+
+#include <WiFi.h>
+#include <BlynkSimpleEsp32.h>
+#include <ESP32Servo.h>
+
+// =================== WiFi and Blynk ===================
+char ssid[] = "ProMax";
+char pass[] = "12345678";
+char auth[] = BLYNK_AUTH_TOKEN;
+
+// =================== Servo Setup ===================
+Servo contServo;  // 360° continuous servo
+Servo angleServo; // Standard positional servo
+
+int lastAngle = 90;     // For 360° servo tracking
+int stepTime = 300;     // Delay between servo steps
+int currentAngle = 90;  // For standard servo (V5)
+
+// =================== Motor Pins ===================
+#define ENA 14
+#define IN1 27
+#define IN2 26
+#define IN3 25
+#define IN4 33
+#define ENB 32
+
+bool up = 0;
+bool down = 0;
+int Speed = 255; // Default max speed (0-255)
+
+// =================== BLYNK HANDLERS ===================
+
+// 360° Servo with slider (V0)
+BLYNK_WRITE(V0) {
+  int angle = param.asInt();
+  if (angle != lastAngle) {
+    rotateServo(angle);
+  }
+}
+
+// 180° Normal Servo control (V5)
+BLYNK_WRITE(V5) {
+  int angle = param.asInt();
+  angle = constrain(angle, 0, 180);
+  angleServo.write(angle);
+  currentAngle = angle;
+  Blynk.virtualWrite(V6, angle); // Update gauge V6
+}
+
+// Forward Button (V2)
+BLYNK_WRITE(V2) {
+  up = param.asInt();
+}
+
+// Backward Button (V3)
+BLYNK_WRITE(V3) {
+  down = param.asInt();
+}
+
+// Motor Speed (V4)
+BLYNK_WRITE(V4) {
+  Speed = param.asInt();
+}
+
+// =================== SETUP ===================
+void setup() {
+  Serial.begin(9600);
+  Blynk.begin(auth, ssid, pass);
+
+  contServo.attach(13);   // 360° servo on GPIO13
+  contServo.write(90);    // Stop position
+
+  angleServo.attach(15);  // Normal servo on GPIO12
+  angleServo.write(currentAngle); // Start at 90
+
+  // Motor pin setup
+  pinMode(ENA, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+  pinMode(ENB, OUTPUT);
+}
+
+// =================== MAIN LOOP ===================
+void loop() {
+  Blynk.run();
+  smartcar();  // Control motors
+}
+
+// =================== SERVO FUNCTION ===================
+void rotateServo(int targetAngle) {
+  if (targetAngle > lastAngle) {
+    contServo.write(180); // CW
+    delay(stepTime);
+    contServo.write(90);  // Stop
+    delay(150);
+  } else if (targetAngle < lastAngle) {
+    contServo.write(0);   // CCW
+    delay(stepTime);
+    contServo.write(90);  // Stop
+    delay(150);
+  }
+  lastAngle = targetAngle;
+  Blynk.virtualWrite(V1, lastAngle); // Update V1 gauge
+}
+
+// =================== MOTOR CONTROL ===================
+void smartcar() {
+  if (up == 1) {
+    Up();
+    Serial.println("Up");
+  } else if (down == 1) {
+    Down();
+    Serial.println("Down");
+  } else {
+    Stop();
+    Serial.println("Stop");
+  }
+}
+
+void Up() {
+  analogWrite(ENA, Speed);
+  analogWrite(ENB, Speed);
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+}
+
+void Down() {
+  analogWrite(ENA, Speed);
+  analogWrite(ENB, Speed);
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+}
+
+void Stop() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+}
