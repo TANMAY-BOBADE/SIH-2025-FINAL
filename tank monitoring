@@ -1,0 +1,73 @@
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <Wire.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+// Ultrasonic pins
+#define TRIG_PIN 5
+#define ECHO_PIN 18
+
+// Tank height
+const float TANK_HEIGHT = 8.0;   // in cm
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  // OLED init
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("OLED not found!");
+    while (1);
+  }
+  display.clearDisplay();
+  display.setTextColor(WHITE);
+}
+
+float getDistance() {
+  // Trigger pulse
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  long duration = pulseIn(ECHO_PIN, HIGH);
+  float distance = duration * 0.0343 / 2; // cm
+  return distance;
+}
+
+void loop() {
+  float distance = getDistance(); // distance from sensor to water
+  float depth = TANK_HEIGHT - distance;
+
+  if (depth < 0) depth = 0;
+  if (depth > TANK_HEIGHT) depth = TANK_HEIGHT;
+
+  float percent = (depth / TANK_HEIGHT) * 100;
+
+  // Display on OLED
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0,0);
+  display.print("Water Level:");
+
+  display.setTextSize(2);
+  display.setCursor(0,20);
+  display.print(depth, 1);
+  display.print(" cm");
+
+  display.setTextSize(1);
+  display.setCursor(0, 50);
+  display.print("Percent: ");
+  display.print(percent, 1);
+  display.print(" %");
+
+  display.display();
+
+  delay(500);
+}
