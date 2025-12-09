@@ -1,0 +1,139 @@
+#include <LoRa.h>
+
+// =================== LORA PINS ===================
+#define LORA_SCK 5
+#define LORA_MISO 19
+#define LORA_MOSI 27
+#define LORA_SS 18
+#define LORA_RST 14
+#define LORA_DIO0 26
+
+// =================== SENSOR PIN ===================
+#define TRIG_PIN 12
+#define ECHO_PIN 13
+
+// =================== TANK SPECIFICATIONS ===================
+#define TANK_HEIGHT_CM 200.0  // Total height of tank in cm (adjust to your tank)
+#define SENSOR_OFFSET_CM 5.0  // Distance from sensor to full water level
+
+// =================== VARIABLES ===================
+unsigned long lastTransmit = 0;
+const unsigned long TRANSMIT_INTERVAL = 10000; // Send every 10 seconds
+
+// =================== SETUP ===================
+void setup() {
+  Serial.begin(115200);
+  Serial.println("\n===== TANK LEVEL MONITOR =====");
+  
+  // Initialize ultrasonic sensor
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  
+  // Initialize LoRa
+  SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
+  LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
+  
+  if (!LoRa.begin(433E6)) {
+    Serial.println("✗ LoRa initialization failed!");
+    while (1);
+  }
+  
+  Serial.println("✓ LoRa initialized");
+  Serial.println("Frequency: 433 MHz");
+  Serial.println("===== SYSTEM READY =====\n");
+}
+
+// =================== MAIN LOOP ===================
+void loop() {
+  unsigned long currentMillis = millis();
+  
+  if (currentMillis - lastTransmit >= TRANSMIT_INTERVAL) {
+    lastTransmit = currentMillis;
+    
+    // Measure water level
+    float distance = measureDistance();
+    float level = calculateWaterLevel(distance);
+    
+    Serial.printf("Distance: %.1f cm | Water Level: %.1f%%\n", distance, level);
+    
+    // Transmit via LoRa
+    transmitLevel(level);
+  }
+  
+  delay(100);
+}
+
+// =================== ULTRASONIC SENSOR ===================
+float measureDistance() {
+  // Send ultrasonic pulse
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  
+  // Measure echo
+  long duration = pulseIn(ECHO_PIN, HIGH, 30000); // 30ms timeout
+  
+  if (duration == 0) {
+    Serial.println("⚠ Sensor timeout!");
+    return -1;
+  }
+  
+  // Calculate distance (speed of sound = 343 m/s = 0.0343 cm/µs)
+  float distance = (duration * 0.0343) / 2.0;
+  
+  return distance;
+}
+
+float calculateWaterLevel(float distance) {
+  if (distance < 0) return 0; // Error reading
+  
+  // Water height = Tank height - (distance from sensor to water surface + offset)
+  float waterHeight = TANK_HEIGHT_CM - (distance + SENSOR_OFFSET_CM);
+  
+  // Convert to percentage
+  float percentage = (waterHeight / TANK_HEIGHT_CM) * 100.0;
+  
+  // Constrain to valid range
+  percentage = constrain(percentage, 0, 100);
+  
+  return percentage;
+}
+
+// =================== LORA TRANSMISSION ===================
+void transmitLevel(float level) {
+  // Format: "TANK:75.5"
+  String message = "TANK:" + String(level, 1);
+  
+  LoRa.beginPacket();
+  LoRa.print(message);
+  LoRa.endPacket();
+  
+  Serial.println("✓ Transmitted: " + message);
+}
+
+// =================== ALTERNATIVE: FLOAT SENSOR ===================
+/*
+// If using a float sensor instead of ultrasonic:
+
+#define FLOAT_SENSOR_PIN 12
+
+void setup() {
+  pinMode(FLOAT_SENSOR_PIN, INPUT_PULLUP);
+  // ... rest of setup
+}
+
+float measureWaterLevel() {
+  // Simple float sensor gives binary output (HIGH = water present, LOW = no water)
+  // For multi-level detection, use multiple float sensors
+  
+  bool hasWater = (digitalRead(FLOAT_SENSOR_PIN) == LOW);
+  
+  if (hasWater) {
+    return 50.0; // Assume 50% when float is triggered (adjust based on sensor placement)
+  } else {
+    return 10.0; // Low level
+  }
+}
+*/
