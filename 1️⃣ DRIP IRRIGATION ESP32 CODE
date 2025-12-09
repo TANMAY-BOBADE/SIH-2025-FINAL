@@ -5,13 +5,15 @@
 #include <ArduinoJson.h>
 
 // =================== HARDWARE PINS ===================
-#define DHTPIN 4                    // DHT11 sensor pin
+#define DHTPIN 4
 #define DHTTYPE DHT11
-#define SOIL_MOISTURE_PIN 34        // Capacitive soil moisture sensor (analog)
-#define VALVE_RELAY_PIN 25          // Relay for solenoid valve/pump
-#define GSM_RX 16                   // GSM module RX
-#define GSM_TX 17                   // GSM module TX
-#define LORA_SCK 5                  // LoRa SPI pins
+#define SOIL_MOISTURE_PIN 34
+#define VALVE_RELAY_PIN 25
+#define GSM_RX 16
+#define GSM_TX 17
+
+// LoRa pins
+#define LORA_SCK 5
 #define LORA_MISO 19
 #define LORA_MOSI 27
 #define LORA_SS 18
@@ -20,16 +22,12 @@
 
 // =================== FIREBASE CONFIG ===================
 #define DATABASE_URL "https://kissan-agriculture-sih-default-rtdb.asia-southeast1.firebasedatabase.app"
-#define DATABASE_SECRET "YOUR_DATABASE_SECRET_HERE"  // Get from Firebase Project Settings
+#define DATABASE_SECRET "YOUR_DATABASE_SECRET_HERE"
 
 // =================== GSM CONFIG ===================
-#define GSM_APN "airtelgprs.com"    // Change to your carrier APN
-// For Airtel: airtelgprs.com
-// For Jio: jionet
-// For BSNL: bsnlnet
-// For Vodafone: www
+#define GSM_APN "airtelgprs.com"  // Change to: jionet, www, bsnlnet
 
-// =================== OPENWEATHER API ===================
+// =================== WEATHER CONFIG ===================
 #define WEATHER_API_KEY "7c8500107f0435cd3f6261949c181bdf"
 #define CITY_NAME "Jorethang,IN"
 
@@ -38,7 +36,7 @@ DHT dht(DHTPIN, DHTTYPE);
 FirebaseData firebaseData;
 FirebaseAuth auth;
 FirebaseConfig config;
-HardwareSerial gsmSerial(1); // Use Serial1 for GSM
+HardwareSerial gsmSerial(1);
 
 // =================== VARIABLES ===================
 bool gsmConnected = false;
@@ -47,27 +45,25 @@ bool cropIntelligenceActive = false;
 String selectedCrop = "potato";
 String selectedStage = "germination";
 float tankLevel = 100.0;
+bool valveCurrentState = false;
 
-// Threshold values (loaded from Firebase or hardcoded as fallback)
 struct Thresholds {
   float moisture_min;
   float moisture_max;
   float temp_min;
   float temp_max;
   float humidity_max;
-} currentThresholds;
+} currentThresholds = {48, 70, 8, 30, 82};
 
-// Hardcoded fallback data for offline mode
-struct CropData {
+// Hardcoded fallback data (MATCHES YOUR DATABASE EXACTLY)
+struct CropStageData {
   const char* stage;
-  float moisture_min;
-  float moisture_max;
-  float temp_min;
-  float temp_max;
+  float moisture_min, moisture_max;
+  float temp_min, temp_max;
   float humidity_max;
 };
 
-CropData potatoData[] = {
+CropStageData potatoStages[] = {
   {"germination", 48, 70, 8, 30, 82},
   {"sprouting", 48, 70, 8, 32, 85},
   {"stolon_formation", 53, 75, 10, 34, 85},
@@ -75,7 +71,7 @@ CropData potatoData[] = {
   {"maturation", 38, 62, 8, 32, 85}
 };
 
-CropData turmericData[] = {
+CropStageData turmericStages[] = {
   {"germination", 38, 62, 16, 36, 88},
   {"vegetative", 48, 72, 19, 36, 90},
   {"rhizome_initiation", 58, 78, 21, 39, 92},
@@ -83,7 +79,7 @@ CropData turmericData[] = {
   {"maturation", 42, 65, 19, 36, 88}
 };
 
-CropData gingerData[] = {
+CropStageData gingerStages[] = {
   {"germination", 38, 62, 14, 32, 88},
   {"vegetative", 48, 72, 16, 34, 90},
   {"rhizome_initiation", 58, 78, 19, 36, 92},
@@ -91,7 +87,7 @@ CropData gingerData[] = {
   {"maturation", 38, 65, 16, 32, 88}
 };
 
-CropData maizeData[] = {
+CropStageData maizeStages[] = {
   {"germination", 42, 68, 12, 34, 75},
   {"vegetative", 48, 72, 14, 36, 78},
   {"pre_flowering", 52, 76, 16, 38, 70},
@@ -99,21 +95,29 @@ CropData maizeData[] = {
   {"maturation", 38, 62, 12, 36, 80}
 };
 
+CropStageData cardamomStages[] = {
+  {"nursery", 62, 78, 11, 30, 95},
+  {"field_establishment", 62, 78, 13, 32, 95},
+  {"active_growth", 62, 78, 16, 34, 95},
+  {"flowering", 68, 85, 16, 34, 95},
+  {"fruiting", 62, 78, 16, 32, 95}
+};
+
 unsigned long lastSensorUpload = 0;
 unsigned long lastWeatherCheck = 0;
 unsigned long lastReconnectAttempt = 0;
-const unsigned long SENSOR_INTERVAL = 1000;        // 1 second
-const unsigned long WEATHER_INTERVAL = 600000;     // 10 minutes
-const unsigned long RECONNECT_INTERVAL = 5000;     // 5 seconds
+const unsigned long SENSOR_INTERVAL = 1000;
+const unsigned long WEATHER_INTERVAL = 600000;
+const unsigned long RECONNECT_INTERVAL = 5000;
 
-// =================== SETUP ===================
 void setup() {
   Serial.begin(115200);
   gsmSerial.begin(9600, SERIAL_8N1, GSM_RX, GSM_TX);
   
-  Serial.println("\n===== DRIP IRRIGATION NODE STARTING =====");
+  Serial.println("\n╔════════════════════════════════════╗");
+  Serial.println("║  DRIP IRRIGATION NODE STARTING    ║");
+  Serial.println("╚════════════════════════════════════╝");
   
-  // Initialize hardware
   pinMode(VALVE_RELAY_PIN, OUTPUT);
   digitalWrite(VALVE_RELAY_PIN, LOW);
   
@@ -124,46 +128,40 @@ void setup() {
   LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
   
   if (!LoRa.begin(433E6)) {
-    Serial.println("LoRa init failed!");
+    Serial.println("✗ LoRa init failed!");
   } else {
-    Serial.println("✓ LoRa initialized");
+    Serial.println("✓ LoRa initialized (433 MHz)");
   }
   
-  // Connect GSM
   connectGSM();
   
-  // Initialize Firebase
   if (gsmConnected) {
     initFirebase();
   }
   
-  Serial.println("===== SYSTEM READY =====\n");
+  Serial.println("\n╔════════════════════════════════════╗");
+  Serial.println("║       SYSTEM READY                 ║");
+  Serial.println("╚════════════════════════════════════╝\n");
 }
 
-// =================== MAIN LOOP ===================
 void loop() {
   unsigned long currentMillis = millis();
   
-  // Read sensors and upload (every 1 second)
   if (currentMillis - lastSensorUpload >= SENSOR_INTERVAL) {
     lastSensorUpload = currentMillis;
     processSensors();
   }
   
-  // Check weather (every 10 minutes)
   if (currentMillis - lastWeatherCheck >= WEATHER_INTERVAL) {
     lastWeatherCheck = currentMillis;
     checkWeather();
   }
   
-  // Listen for LoRa tank level updates
   receiveTankLevel();
   
-  // Check Firebase commands
   if (firebaseConnected) {
     checkFirebaseCommands();
   } else {
-    // Try to reconnect
     if (currentMillis - lastReconnectAttempt >= RECONNECT_INTERVAL) {
       lastReconnectAttempt = currentMillis;
       if (gsmConnected) {
@@ -177,9 +175,8 @@ void loop() {
   delay(10);
 }
 
-// =================== GSM FUNCTIONS ===================
 void connectGSM() {
-  Serial.println("Connecting to GSM...");
+  Serial.println("📡 Connecting to GSM network...");
   
   sendATCommand("AT", 1000);
   sendATCommand("AT+CPIN?", 1000);
@@ -196,8 +193,7 @@ void connectGSM() {
   
   if (response.indexOf("ERROR") == -1 && response.length() > 5) {
     gsmConnected = true;
-    Serial.println("✓ GSM Connected!");
-    Serial.println("IP: " + response);
+    Serial.println("✓ GSM Connected! IP: " + response.substring(0, 20));
   } else {
     gsmConnected = false;
     Serial.println("✗ GSM connection failed");
@@ -220,32 +216,27 @@ String sendATCommand(const char* cmd, int timeout) {
   return response;
 }
 
-// =================== FIREBASE FUNCTIONS ===================
 void initFirebase() {
-  Serial.println("Initializing Firebase...");
+  Serial.println("🔥 Initializing Firebase...");
   
   config.database_url = DATABASE_URL;
   config.signer.tokens.legacy_token = DATABASE_SECRET;
   
   Firebase.begin(&config, &auth);
-  Firebase.reconnectWiFi(false); // We're using GSM, not WiFi
+  Firebase.reconnectWiFi(false);
   
-  // Test connection
-  if (Firebase.setString(firebaseData, "/system/alerts/gsm_offline", "false")) {
+  if (Firebase.setBool(firebaseData, "/system/alerts/gsm_offline", false)) {
     firebaseConnected = true;
     Serial.println("✓ Firebase connected!");
-    
-    // Load initial configuration
     loadCropConfig();
   } else {
     firebaseConnected = false;
-    Serial.println("✗ Firebase connection failed");
-    Serial.println("Reason: " + firebaseData.errorReason());
+    Serial.println("✗ Firebase failed: " + firebaseData.errorReason());
   }
 }
 
 void loadCropConfig() {
-  // Get selected crop and stage
+  // Get selected crop and stage from YOUR database structure
   if (Firebase.getString(firebaseData, "/irrigation/selected_crop")) {
     selectedCrop = firebaseData.stringData();
   }
@@ -254,34 +245,34 @@ void loadCropConfig() {
     selectedStage = firebaseData.stringData();
   }
   
-  Serial.println("Crop: " + selectedCrop + ", Stage: " + selectedStage);
+  Serial.println("📋 Config: " + selectedCrop + " → " + selectedStage);
   
-  // Load thresholds from Firebase
-  String path = "/crops/" + selectedCrop + "/stages/" + selectedStage;
+  // Load thresholds from /crops/{crop}/stages/{stage}/ path
+  String basePath = "/crops/" + selectedCrop + "/stages/" + selectedStage;
   
-  if (Firebase.getFloat(firebaseData, path + "/moisture_min")) {
+  if (Firebase.getFloat(firebaseData, basePath + "/moisture_min")) {
     currentThresholds.moisture_min = firebaseData.floatData();
   }
-  if (Firebase.getFloat(firebaseData, path + "/moisture_max")) {
+  if (Firebase.getFloat(firebaseData, basePath + "/moisture_max")) {
     currentThresholds.moisture_max = firebaseData.floatData();
   }
-  if (Firebase.getFloat(firebaseData, path + "/temp_min")) {
+  if (Firebase.getFloat(firebaseData, basePath + "/temp_min")) {
     currentThresholds.temp_min = firebaseData.floatData();
   }
-  if (Firebase.getFloat(firebaseData, path + "/temp_max")) {
+  if (Firebase.getFloat(firebaseData, basePath + "/temp_max")) {
     currentThresholds.temp_max = firebaseData.floatData();
   }
-  if (Firebase.getFloat(firebaseData, path + "/humidity_max")) {
+  if (Firebase.getFloat(firebaseData, basePath + "/humidity_max")) {
     currentThresholds.humidity_max = firebaseData.floatData();
   }
   
-  Serial.printf("Thresholds: Moisture %.0f-%.0f%%, Temp %.0f-%.0f°C\n",
+  Serial.printf("✓ Thresholds: M[%.0f-%.0f%%] T[%.0f-%.0f°C]\n",
                 currentThresholds.moisture_min, currentThresholds.moisture_max,
                 currentThresholds.temp_min, currentThresholds.temp_max);
 }
 
 void checkFirebaseCommands() {
-  // Check crop intelligence status
+  // Check if crop intelligence is ON
   if (Firebase.getString(firebaseData, "/irrigation/crop_intelligence/status")) {
     String status = firebaseData.stringData();
     cropIntelligenceActive = (status == "ON");
@@ -291,9 +282,9 @@ void checkFirebaseCommands() {
   if (Firebase.getString(firebaseData, "/irrigation/valve/command")) {
     String command = firebaseData.stringData();
     
-    if (command == "OPEN") {
+    if (command == "OPEN" && !valveCurrentState) {
       controlValve(true, "Manual command");
-    } else if (command == "CLOSE") {
+    } else if (command == "CLOSE" && valveCurrentState) {
       controlValve(false, "Manual command");
     }
   }
@@ -310,12 +301,11 @@ void checkFirebaseCommands() {
   }
   
   if (selectedCrop != oldCrop || selectedStage != oldStage) {
-    Serial.println("Config changed! Reloading thresholds...");
+    Serial.println("⚡ Config changed! Reloading...");
     loadCropConfig();
   }
 }
 
-// =================== SENSOR FUNCTIONS ===================
 void processSensors() {
   float temp = dht.readTemperature();
   float humidity = dht.readHumidity();
@@ -323,29 +313,25 @@ void processSensors() {
   
   if (isnan(temp) || isnan(humidity)) {
     Serial.println("✗ Sensor read failed!");
-    
     if (firebaseConnected) {
       Firebase.setBool(firebaseData, "/system/alerts/sensor_failure", true);
     }
     return;
   }
   
-  Serial.printf("T: %.1f°C | H: %.1f%% | M: %.1f%%\n", temp, humidity, moisture);
+  Serial.printf("📊 T:%.1f°C H:%.1f%% M:%.1f%%\n", temp, humidity, moisture);
   
-  // Upload to Firebase
   if (firebaseConnected) {
     Firebase.setFloat(firebaseData, "/irrigation/sensors/temperature", temp);
     Firebase.setFloat(firebaseData, "/irrigation/sensors/humidity", humidity);
     Firebase.setFloat(firebaseData, "/irrigation/sensors/moisture", moisture);
     Firebase.setInt(firebaseData, "/irrigation/sensors/timestamp", millis());
-    
     Firebase.setBool(firebaseData, "/system/alerts/sensor_failure", false);
   } else {
-    Serial.println("⚠ Offline mode - using hardcoded thresholds");
+    Serial.println("⚠ OFFLINE mode - using hardcoded thresholds");
     loadHardcodedThresholds();
   }
   
-  // Crop Intelligence Logic
   if (cropIntelligenceActive) {
     runCropIntelligence(temp, humidity, moisture);
   }
@@ -353,105 +339,94 @@ void processSensors() {
 
 float readSoilMoisture() {
   int rawValue = analogRead(SOIL_MOISTURE_PIN);
-  
-  // Calibration (adjust based on your sensor)
-  // Dry soil: ~3000, Wet soil: ~1000
   float moisture = map(rawValue, 3000, 1000, 0, 100);
   moisture = constrain(moisture, 0, 100);
-  
   return moisture;
 }
 
 void loadHardcodedThresholds() {
-  // Fallback to hardcoded data when offline
-  CropData* data = NULL;
-  int dataSize = 0;
+  CropStageData* stages = NULL;
+  int stageCount = 0;
   
   if (selectedCrop == "potato") {
-    data = potatoData;
-    dataSize = 5;
+    stages = potatoStages;
+    stageCount = 5;
   } else if (selectedCrop == "turmeric") {
-    data = turmericData;
-    dataSize = 5;
+    stages = turmericStages;
+    stageCount = 5;
   } else if (selectedCrop == "ginger") {
-    data = gingerData;
-    dataSize = 5;
+    stages = gingerStages;
+    stageCount = 5;
   } else if (selectedCrop == "maize") {
-    data = maizeData;
-    dataSize = 5;
+    stages = maizeStages;
+    stageCount = 5;
+  } else if (selectedCrop == "black_cardamom") {
+    stages = cardamomStages;
+    stageCount = 5;
   }
   
-  if (data) {
-    for (int i = 0; i < dataSize; i++) {
-      if (String(data[i].stage) == selectedStage) {
-        currentThresholds.moisture_min = data[i].moisture_min;
-        currentThresholds.moisture_max = data[i].moisture_max;
-        currentThresholds.temp_min = data[i].temp_min;
-        currentThresholds.temp_max = data[i].temp_max;
-        currentThresholds.humidity_max = data[i].humidity_max;
+  if (stages) {
+    for (int i = 0; i < stageCount; i++) {
+      if (String(stages[i].stage) == selectedStage) {
+        currentThresholds.moisture_min = stages[i].moisture_min;
+        currentThresholds.moisture_max = stages[i].moisture_max;
+        currentThresholds.temp_min = stages[i].temp_min;
+        currentThresholds.temp_max = stages[i].temp_max;
+        currentThresholds.humidity_max = stages[i].humidity_max;
+        Serial.println("✓ Loaded offline thresholds");
         break;
       }
     }
   }
 }
 
-// =================== CROP INTELLIGENCE ===================
 void runCropIntelligence(float temp, float humidity, float moisture) {
   bool needsWater = false;
   String reason = "";
   
-  // Check moisture level
   if (moisture < currentThresholds.moisture_min) {
     needsWater = true;
-    reason = "Moisture low: " + String(moisture) + "%";
+    reason = "Moisture low: " + String(moisture, 1) + "%";
   }
   
-  // Check tank level
   if (tankLevel < 20) {
     Serial.println("⚠ TANK LOW! Cannot water.");
-    
     if (firebaseConnected) {
       Firebase.setBool(firebaseData, "/system/alerts/tank_low", true);
     }
-    
-    // Send SMS alert (optional)
-    sendSMS("+91XXXXXXXXXX", "Tank water level low! Please refill.");
-    
+    sendSMS("+919876543210", "Tank water level low! Please refill.");
     return;
   }
   
-  // Control valve based on conditions
-  if (needsWater) {
+  if (needsWater && !valveCurrentState) {
     controlValve(true, reason);
-  } else if (moisture >= currentThresholds.moisture_max) {
-    controlValve(false, "Moisture optimal");
+  } else if (moisture >= currentThresholds.moisture_max && valveCurrentState) {
+    controlValve(false, "Moisture optimal: " + String(moisture, 1) + "%");
   }
 }
 
 void controlValve(bool open, String reason) {
-  static bool currentState = false;
+  if (open == valveCurrentState) return;
   
-  if (open == currentState) return; // No change needed
-  
-  currentState = open;
+  valveCurrentState = open;
   digitalWrite(VALVE_RELAY_PIN, open ? HIGH : LOW);
   
-  Serial.println(open ? "✓ VALVE OPENED" : "✓ VALVE CLOSED");
-  Serial.println("Reason: " + reason);
+  Serial.println(open ? "💧 VALVE OPENED" : "🚫 VALVE CLOSED");
+  Serial.println("   Reason: " + reason);
   
   if (firebaseConnected) {
     Firebase.setString(firebaseData, "/irrigation/valve/state", open ? "OPEN" : "CLOSED");
     Firebase.setString(firebaseData, "/irrigation/valve/last_reason", reason);
     Firebase.setInt(firebaseData, "/irrigation/valve/last_changed", millis());
     
-    // Log event
+    // Log to /logs/irrigation/
     String logPath = "/logs/irrigation/log_" + String(millis());
     Firebase.setString(firebaseData, logPath + "/action", open ? "OPENED" : "CLOSED");
     Firebase.setString(firebaseData, logPath + "/reason", reason);
+    Firebase.setInt(firebaseData, logPath + "/timestamp", millis());
   }
 }
 
-// =================== LORA FUNCTIONS ===================
 void receiveTankLevel() {
   int packetSize = LoRa.parsePacket();
   
@@ -461,10 +436,9 @@ void receiveTankLevel() {
       data += (char)LoRa.read();
     }
     
-    // Expected format: "TANK:75.5"
     if (data.startsWith("TANK:")) {
       tankLevel = data.substring(5).toFloat();
-      Serial.printf("LoRa: Tank level received: %.1f%%\n", tankLevel);
+      Serial.printf("📻 LoRa: Tank %.1f%%\n", tankLevel);
       
       if (firebaseConnected) {
         Firebase.setFloat(firebaseData, "/irrigation/tank/level_percent", tankLevel);
@@ -475,16 +449,11 @@ void receiveTankLevel() {
   }
 }
 
-// =================== WEATHER API ===================
 void checkWeather() {
   if (!gsmConnected) return;
   
-  Serial.println("Checking weather...");
+  Serial.println("☁️ Checking weather...");
   
-  String url = "http://api.openweathermap.org/data/2.5/weather?q=" + 
-               String(CITY_NAME) + "&appid=" + String(WEATHER_API_KEY);
-  
-  // Send HTTP request via GSM
   sendATCommand("AT+CIPSTART=\"TCP\",\"api.openweathermap.org\",80", 5000);
   delay(2000);
   
@@ -504,38 +473,34 @@ void checkWeather() {
     response += (char)gsmSerial.read();
   }
   
-  // Parse response for rain
-  bool rainPredicted = (response.indexOf("Rain") > 0 || response.indexOf("rain") > 0);
+  bool rainPredicted = (response.indexOf("Rain") > 0 || response.indexOf("rain") > 0 || 
+                        response.indexOf("Drizzle") > 0);
   
-  Serial.println(rainPredicted ? "⚠ Rain predicted!" : "✓ No rain predicted");
+  Serial.println(rainPredicted ? "⚠ Rain predicted!" : "✓ No rain");
   
   if (firebaseConnected) {
     Firebase.setBool(firebaseData, "/irrigation/weather/rain_predicted", rainPredicted);
     Firebase.setString(firebaseData, "/irrigation/weather/alert_message", 
-                       rainPredicted ? "Rain expected in Jorethang" : "");
+                       rainPredicted ? "Rain expected in Jorethang" : "Clear weather");
     Firebase.setInt(firebaseData, "/irrigation/weather/last_checked", millis());
   }
   
-  if (rainPredicted) {
-    // Optionally pause irrigation
+  if (rainPredicted && valveCurrentState) {
     controlValve(false, "Rain predicted");
-    
-    // Send SMS
-    sendSMS("+91XXXXXXXXXX", "Rain predicted in Jorethang. Irrigation paused.");
+    sendSMS("+919876543210", "Rain predicted. Irrigation paused.");
   }
   
   sendATCommand("AT+CIPCLOSE", 1000);
 }
 
-// =================== SMS FUNCTIONS ===================
 void sendSMS(String number, String message) {
-  Serial.println("Sending SMS to " + number);
+  Serial.println("📱 Sending SMS to " + number);
   
   sendATCommand("AT+CMGF=1", 1000);
   sendATCommand(("AT+CMGS=\"" + number + "\"").c_str(), 2000);
   gsmSerial.print(message);
-  gsmSerial.write(26); // Ctrl+Z
+  gsmSerial.write(26);
   delay(5000);
   
-  Serial.println("SMS sent!");
+  Serial.println("✓ SMS sent!");
 }
