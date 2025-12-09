@@ -1,0 +1,449 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <ESP32Servo.h>
+#include <DHT.h>
+#include <FirebaseESP32.h>
+
+// =================== WIFI HOTSPOT CONFIG ===================
+const char* ssid = "AgriRover";
+const char* password = "rover123";
+
+// =================== FIREBASE CONFIG ===================
+#define DATABASE_URL "https://kissan-agriculture-sih-default-rtdb.asia-southeast1.firebasedatabase.app"
+#define DATABASE_SECRET "YOUR_DATABASE_SECRET_HERE"
+
+// =================== HARDWARE PINS ===================
+// Servos
+#define DISC_SERVO_PIN 13           // 360° continuous servo for disc
+#define FLAP_SERVO_PIN 15           // Standard servo for metal flap
+
+// Rack & Pinion Motors
+#define MOTOR_A_FWD 26
+#define MOTOR_A_BWD 27
+#define MOTOR_B_FWD 14
+#define MOTOR_B_BWD 12
+#define MOTOR_ENA 25
+#define MOTOR_ENB 33
+
+// Sensors
+#define DHTPIN 4
+#define DHTTYPE DHT11
+#define SOIL_MOISTURE_PIN 34        // Capacitive sensor
+
+// Irrigation Pump
+#define PUMP_RELAY_PIN 32
+
+// =================== OBJECTS ===================
+Servo discServo;      // 360° continuous
+Servo flapServo;      // Standard 0-180°
+DHT dht(DHTPIN, DHTTYPE);
+WebServer server(80);
+FirebaseData firebaseData;
+FirebaseAuth auth;
+FirebaseConfig config;
+
+// =================== VARIABLES ===================
+int currentDiscAngle = 0;
+bool plantationRunning = false;
+bool irrigationRunning = false;
+unsigned long plantationStartTime = 0;
+int plantationStep = 0;
+
+float calculatedWaterDuration = 0; // In milliseconds
+float soilMoistureReading = 0;
+
+String selectedCrop = "potato";
+String selectedStage = "germination";
+
+struct Thresholds {
+  float moisture_min;
+  float moisture_max;
+  float temp_min;
+  float temp_max;
+} currentThresholds = {48, 70, 8, 30}; // Default potato germination
+
+unsigned long lastSensorUpload = 0;
+const unsigned long SENSOR_INTERVAL = 7000; // 7 seconds
+
+// =================== SETUP ===================
+void setup() {
+  Serial.begin(115200);
+  Serial.println("\n===== ROVER MAIN CONTROLLER STARTING =====");
+  
+  // Initialize hardware
+  pinMode(MOTOR_A_FWD, OUTPUT);
+  pinMode(MOTOR_A_BWD, OUTPUT);
+  pinMode(MOTOR_B_FWD, OUTPUT);
+  pinMode(MOTOR_B_BWD, OUTPUT);
+  pinMode(MOTOR_ENA, OUTPUT);
+  pinMode(MOTOR_ENB, OUTPUT);
+  pinMode(PUMP_RELAY_PIN, OUTPUT);
+  
+  digitalWrite(PUMP_RELAY_PIN, LOW);
+  
+  // Initialize servos
+  discServo.attach(DISC_SERVO_PIN);
+  flapServo.attach(FLAP_SERVO_PIN);
+  
+  discServo.write(90);  // Stop position
+  flapServo.write(0);   // Closed position
+  
+  dht.begin();
+  
+  // Create WiFi hotspot
+  WiFi.softAP(ssid, password);
+  IPAddress IP = WiFi.softAPIP();
+  
+  Serial.println("\n✓ WiFi Hotspot Created");
+  Serial.print("SSID: ");
+  Serial.println(ssid);
+  Serial.print("Password: ");
+  Serial.println(password);
+  Serial.print("IP Address: ");
+  Serial.println(IP);
+  
+  // Setup web server routes
+  setupRoutes();
+  server.begin();
+  Serial.println("✓ Web server started");
+  
+  // Initialize Firebase (will connect when mobile hotspot provides internet)
+  initFirebase();
+  
+  Serial.println("===== SYSTEM READY =====\n");
+}
+
+// =================== MAIN LOOP ===================
+void loop() {
+  server.handleClient();
+  
+  unsigned long currentMillis = millis();
+  
+  // Upload sensors every 7 seconds
+  if (currentMillis - lastSensorUpload >= SENSOR_INTERVAL) {
+    lastSensorUpload = currentMillis;
+    uploadSensorData();
+  }
+  
+  // Check for Firebase commands
+  checkFirebaseCommands();
+  
+  // Handle automated sequences
+  if (plantationRunning) {
+    runPlantationSequence();
+  }
+  
+  if (irrigationRunning) {
+    runIrrigationSequence();
+  }
+}
+
+// =================== FIREBASE ===================
+void initFirebase() {
+  config.database_url = DATABASE_URL;
+  config.signer.tokens.legacy_token = DATABASE_SECRET;
+  
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
+  
+  Serial.println("Firebase initialized (will connect when internet available)");
+}
+
+void checkFirebaseCommands() {
+  // Check for new commands from dashboard
+  if (Firebase.getJSON(firebaseData, "/rover/commands")) {
+    if (firebaseData.dataType() == "json") {
+      FirebaseJson &json = firebaseData.jsonObject();
+      FirebaseJsonData data;
+      
+      if (json.get(data, "action")) {
+        String action = data.stringValue;
+        
+        if (action == "PLANTATION" && !plantationRunning) {
+          startPlantationSequence();
+        } else if (action == "IRRIGATION" && !irrigationRunning) {
+          startIrrigationSequence();
+        }
+      }
+    }
+  }
+  
+  // Load crop configuration
+  if (Firebase.getString(firebaseData, "/rover/selected_crop")) {
+    selectedCrop = firebaseData.stringData();
+  }
+  
+  if (Firebase.getString(firebaseData, "/rover/selected_stage")) {
+    selectedStage = firebaseData.stringData();
+  }
+}
+
+void uploadSensorData() {
+  float temp = dht.readTemperature();
+  float humidity = dht.readHumidity();
+  float moisture = readSoilMoisture();
+  
+  if (isnan(temp) || isnan(humidity)) {
+    Serial.println("Sensor read failed!");
+    return;
+  }
+  
+  Serial.printf("Rover Sensors: T=%.1f°C, H=%.1f%%, M=%.1f%%\n", temp, humidity, moisture);
+  
+  // Upload to Firebase
+  Firebase.setFloat(firebaseData, "/rover/sensors/temperature", temp);
+  Firebase.setFloat(firebaseData, "/rover/sensors/humidity", humidity);
+  Firebase.setFloat(firebaseData, "/rover/sensors/moisture", moisture);
+  Firebase.setInt(firebaseData, "/rover/sensors/timestamp", millis());
+}
+
+float readSoilMoisture() {
+  int rawValue = analogRead(SOIL_MOISTURE_PIN);
+  float moisture = map(rawValue, 3000, 1000, 0, 100);
+  moisture = constrain(moisture, 0, 100);
+  return moisture;
+}
+
+// =================== WEB SERVER ROUTES ===================
+void setupRoutes() {
+  // Movement commands (handled by ESP8266, but we log them)
+  server.on("/rover/move/forward", HTTP_GET, []() {
+    Serial.println("Command: Move Forward");
+    sendJSONResponse(200, "success", "forward");
+  });
+  
+  server.on("/rover/move/backward", HTTP_GET, []() {
+    Serial.println("Command: Move Backward");
+    sendJSONResponse(200, "success", "backward");
+  });
+  
+  server.on("/rover/move/left", HTTP_GET, []() {
+    Serial.println("Command: Turn Left");
+    sendJSONResponse(200, "success", "left");
+  });
+  
+  server.on("/rover/move/right", HTTP_GET, []() {
+    Serial.println("Command: Turn Right");
+    sendJSONResponse(200, "success", "right");
+  });
+  
+  server.on("/rover/stop", HTTP_GET, []() {
+    Serial.println("Command: Stop");
+    sendJSONResponse(200, "success", "stop");
+  });
+  
+  // Plantation sequence
+  server.on("/rover/plant/start", HTTP_GET, []() {
+    if (!plantationRunning) {
+      startPlantationSequence();
+      sendJSONResponse(200, "success", "Plantation sequence started");
+    } else {
+      sendJSONResponse(400, "error", "Sequence already running");
+    }
+  });
+  
+  // Irrigation sequence
+  server.on("/rover/irrigate/start", HTTP_GET, []() {
+    if (!irrigationRunning) {
+      startIrrigationSequence();
+      sendJSONResponse(200, "success", "Irrigation started");
+    } else {
+      sendJSONResponse(400, "error", "Already irrigating");
+    }
+  });
+  
+  // Status
+  server.on("/rover/status", HTTP_GET, []() {
+    String json = "{";
+    json += "\"plantation_active\":" + String(plantationRunning ? "true" : "false") + ",";
+    json += "\"irrigation_active\":" + String(irrigationRunning ? "true" : "false") + ",";
+    json += "\"disc_angle\":" + String(currentDiscAngle) + ",";
+    json += "\"soil_moisture\":" + String(soilMoistureReading);
+    json += "}";
+    server.send(200, "application/json", json);
+  });
+  
+  server.enableCORS(true);
+}
+
+void sendJSONResponse(int code, String status, String message) {
+  String json = "{\"status\":\"" + status + "\",\"message\":\"" + message + "\"}";
+  server.send(code, "application/json", json);
+}
+
+// =================== PLANTATION SEQUENCE ===================
+void startPlantationSequence() {
+  Serial.println("\n===== STARTING PLANTATION SEQUENCE =====");
+  plantationRunning = true;
+  plantationStep = 1;
+  plantationStartTime = millis();
+  
+  Firebase.setBool(firebaseData, "/rover/plantation/sequence_running", true);
+  Firebase.setInt(firebaseData, "/rover/plantation/current_step", 1);
+}
+
+void runPlantationSequence() {
+  unsigned long elapsed = millis() - plantationStartTime;
+  
+  switch (plantationStep) {
+    case 1: // Step 1: Rack Down
+      Serial.println("Step 1: Moving rack DOWN");
+      moveRackDown();
+      plantationStartTime = millis();
+      plantationStep = 2;
+      break;
+      
+    case 2: // Step 2: Wait 0.5s, then rotate disc
+      if (elapsed >= 500) {
+        Serial.println("Step 2: Rotating disc 60°");
+        rotateDisc60Degrees();
+        plantationStartTime = millis();
+        plantationStep = 3;
+      }
+      break;
+      
+    case 3: // Step 3: Wait 0.5s, then open flap
+      if (elapsed >= 500) {
+        Serial.println("Step 3: Opening flap (immersing sensor)");
+        flapServo.write(90); // Open flap
+        soilMoistureReading = readSoilMoisture();
+        Serial.printf("Soil moisture reading: %.1f%%\n", soilMoistureReading);
+        
+        // Calculate water needed
+        calculateWaterDuration();
+        
+        plantationStartTime = millis();
+        plantationStep = 4;
+      }
+      break;
+      
+    case 4: // Step 4: Wait 8 seconds (sensor reading time)
+      if (elapsed >= 8000) {
+        Serial.println("Step 4: Closing flap");
+        flapServo.write(0); // Close flap
+        plantationStartTime = millis();
+        plantationStep = 5;
+      }
+      break;
+      
+    case 5: // Step 5: Wait 0.5s, then rack up
+      if (elapsed >= 500) {
+        Serial.println("Step 5: Moving rack UP");
+        moveRackUp();
+        plantationStartTime = millis();
+        plantationStep = 6;
+      }
+      break;
+      
+    case 6: // Step 6: Sequence complete
+      if (elapsed >= 2000) { // Wait for rack to fully rise
+        Serial.println("===== PLANTATION SEQUENCE COMPLETE =====\n");
+        stopMotors();
+        plantationRunning = false;
+        plantationStep = 0;
+        
+        Firebase.setBool(firebaseData, "/rover/plantation/sequence_running", false);
+        Firebase.setFloat(firebaseData, "/rover/plantation/water_duration_calculated", calculatedWaterDuration);
+      }
+      break;
+  }
+}
+
+// =================== IRRIGATION SEQUENCE ===================
+void startIrrigationSequence() {
+  Serial.println("\n===== STARTING IRRIGATION =====");
+  Serial.printf("Watering for %.1f seconds\n", calculatedWaterDuration / 1000.0);
+  
+  irrigationRunning = true;
+  digitalWrite(PUMP_RELAY_PIN, HIGH);
+  plantationStartTime = millis();
+  
+  Firebase.setBool(firebaseData, "/rover/plantation/irrigation_active", true);
+}
+
+void runIrrigationSequence() {
+  unsigned long elapsed = millis() - plantationStartTime;
+  
+  if (elapsed >= calculatedWaterDuration) {
+    Serial.println("===== IRRIGATION COMPLETE =====\n");
+    digitalWrite(PUMP_RELAY_PIN, LOW);
+    irrigationRunning = false;
+    
+    Firebase.setBool(firebaseData, "/rover/plantation/irrigation_active", false);
+  }
+}
+
+// =================== MOTOR CONTROL ===================
+void moveRackDown() {
+  // Motors move in opposite directions to lower rack
+  digitalWrite(MOTOR_A_FWD, LOW);
+  digitalWrite(MOTOR_A_BWD, HIGH);
+  digitalWrite(MOTOR_B_FWD, HIGH);
+  digitalWrite(MOTOR_B_BWD, LOW);
+  analogWrite(MOTOR_ENA, 255);
+  analogWrite(MOTOR_ENB, 255);
+}
+
+void moveRackUp() {
+  // Motors reverse to raise rack
+  digitalWrite(MOTOR_A_FWD, HIGH);
+  digitalWrite(MOTOR_A_BWD, LOW);
+  digitalWrite(MOTOR_B_FWD, LOW);
+  digitalWrite(MOTOR_B_BWD, HIGH);
+  analogWrite(MOTOR_ENA, 255);
+  analogWrite(MOTOR_ENB, 255);
+}
+
+void stopMotors() {
+  digitalWrite(MOTOR_A_FWD, LOW);
+  digitalWrite(MOTOR_A_BWD, LOW);
+  digitalWrite(MOTOR_B_FWD, LOW);
+  digitalWrite(MOTOR_B_BWD, LOW);
+}
+
+// =================== SERVO CONTROL ===================
+void rotateDisc60Degrees() {
+  // 360° servo: 180=CW, 0=CCW, 90=Stop
+  discServo.write(180); // Rotate clockwise
+  delay(300);           // Adjust timing for 60° rotation
+  discServo.write(90);  // Stop
+  
+  currentDiscAngle = (currentDiscAngle + 60) % 360;
+}
+
+// =================== WATER CALCULATION ===================
+void calculateWaterDuration() {
+  // Get current thresholds from Firebase or use defaults
+  String path = "/crops/" + selectedCrop + "/stages/" + selectedStage;
+  
+  if (Firebase.getFloat(firebaseData, path + "/moisture_min")) {
+    currentThresholds.moisture_min = firebaseData.floatData();
+  }
+  if (Firebase.getFloat(firebaseData, path + "/moisture_max")) {
+    currentThresholds.moisture_max = firebaseData.floatData();
+  }
+  
+  // Calculate moisture deficit
+  float targetMoisture = (currentThresholds.moisture_min + currentThresholds.moisture_max) / 2.0;
+  float deficit = targetMoisture - soilMoistureReading;
+  
+  if (deficit <= 0) {
+    Serial.println("Soil moisture adequate, no watering needed");
+    calculatedWaterDuration = 0;
+    return;
+  }
+  
+  // Pump specs: 80-120 L/H, average 100 L/H = 1.67 L/min = 0.028 L/sec
+  // Assume 1% moisture increase needs ~50ml = 0.05L water per plant area
+  // Duration (seconds) = (deficit %) * 0.05L / 0.028 L/sec
+  
+  float waterNeeded = deficit * 0.05; // Liters
+  float pumpRate = 0.028;             // L/sec
+  calculatedWaterDuration = (waterNeeded / pumpRate) * 1000; // Convert to milliseconds
+  
+  // Safety limits
+  calculatedWaterDuration = constrain(calculatedWaterDuration, 1000, 30000); // 1-30 seconds
+  
+  Serial.printf("Water calculation: Deficit=%.1f%%, Duration=%.1fs\n", 
+                deficit, calculatedWaterDuration / 1000.0);
+}
