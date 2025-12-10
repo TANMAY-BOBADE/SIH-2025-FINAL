@@ -1,0 +1,528 @@
+# 🌾 Complete ESP32 Setup Guide - Kissan Agriculture Project
+
+## 📋 Table of Contents
+1. [Arduino IDE Setup](#arduino-ide-setup)
+2. [Library Installation](#library-installation)
+3. [Hardware Connections](#hardware-connections)
+4. [Code Configuration](#code-configuration)
+5. [Upload Procedure](#upload-procedure)
+6. [Testing Guide](#testing-guide)
+7. [Troubleshooting](#troubleshooting)
+
+---
+
+## 1️⃣ ARDUINO IDE SETUP
+
+### Step 1.1: Install Arduino IDE
+1. Download from: https://www.arduino.cc/en/software
+2. Install version 2.0+ (recommended)
+
+### Step 1.2: Add ESP32 Board Support
+1. Open Arduino IDE
+2. Go to **File → Preferences**
+3. In "Additional Board Manager URLs", add:
+   ```
+   https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+   ```
+4. Click OK
+5. Go to **Tools → Board → Boards Manager**
+6. Search "ESP32"
+7. Install **"esp32 by Espressif Systems"** (version 2.0.14 or later)
+
+### Step 1.3: Add ESP8266 Board Support
+1. In Preferences, add to URLs (separate with comma):
+   ```
+   http://arduino.esp8266.com/stable/package_esp8266com_index.json
+   ```
+2. Go to Boards Manager
+3. Search "ESP8266"
+4. Install **"esp8266 by ESP8266 Community"**
+
+---
+
+## 2️⃣ LIBRARY INSTALLATION
+
+### Method 1: Using Library Manager (Recommended)
+Go to **Sketch → Include Library → Manage Libraries**, search and install:
+
+#### For All ESP32 Boards:
+- ✅ **DHT sensor library** by Adafruit (version 1.4.4+)
+- ✅ **Adafruit Unified Sensor** (dependency)
+- ✅ **Firebase ESP32 Client** by Mobizt (version 4.4.14+)
+- ✅ **ArduinoJson** by Benoit Blanchon (version 6.21+)
+- ✅ **LoRa** by Sandeep Mistry (version 0.8.0+)
+- ✅ **ESP32Servo** by Kevin Harrington (version 3.0.5+)
+
+#### For ESP8266:
+- ✅ **ESP8266WiFi** (included)
+- ✅ **ESP8266WebServer** (included)
+
+### Method 2: Manual Installation (if needed)
+1. Download library ZIP from GitHub
+2. **Sketch → Include Library → Add .ZIP Library**
+3. Select downloaded file
+
+---
+
+## 3️⃣ HARDWARE CONNECTIONS
+
+### 3.1 DRIP IRRIGATION ESP32
+
+#### Pin Connections:
+```
+DHT11 Sensor:
+  VCC  →  ESP32 3.3V
+  GND  →  ESP32 GND
+  DATA →  GPIO 4
+
+Soil Moisture Sensor (Capacitive):
+  VCC  →  ESP32 3.3V
+  GND  →  ESP32 GND
+  AOUT →  GPIO 34
+
+Relay Module (Valve):
+  VCC  →  ESP32 5V
+  GND  →  ESP32 GND
+  IN   →  GPIO 25
+
+GSM Module (SIM800L):
+  VCC  →  External 5V (needs min 2A supply!)
+  GND  →  Common ground with ESP32
+  TX   →  GPIO 16 (ESP32 RX)
+  RX   →  GPIO 17 (ESP32 TX)
+
+LoRa Module (SX1278):
+  VCC  →  ESP32 3.3V
+  GND  →  ESP32 GND
+  SCK  →  GPIO 5
+  MISO →  GPIO 19
+  MOSI →  GPIO 27
+  NSS  →  GPIO 18
+  RST  →  GPIO 14
+  DIO0 →  GPIO 26
+```
+
+**⚠️ CRITICAL: GSM Module Power**
+- SIM800L needs **4.0V and 2A** during transmission
+- Use a separate 5V/2A power supply
+- Connect grounds together (common ground)
+
+---
+
+### 3.2 ROVER MAIN ESP32
+
+#### Pin Connections:
+```
+DHT11 Sensor:
+  (Same as irrigation node)
+
+Soil Moisture Sensor:
+  (Same as irrigation node)
+
+Disc Servo (360° Continuous):
+  VCC    →  ESP32 5V (external supply recommended)
+  GND    →  ESP32 GND
+  SIGNAL →  GPIO 13
+
+Flap Servo (Standard):
+  VCC    →  ESP32 5V
+  GND    →  ESP32 GND
+  SIGNAL →  GPIO 15
+
+L298N Motor Driver (Rack & Pinion):
+  12V    →  External 12V battery
+  GND    →  Common ground
+  5V     →  ESP32 VIN (or separate 5V)
+  ENA    →  GPIO 25
+  IN1    →  GPIO 26
+  IN2    →  GPIO 27
+  IN3    →  GPIO 14
+  IN4    →  GPIO 12
+  ENB    →  GPIO 33
+  OUT1/2 →  Motor A
+  OUT3/4 →  Motor B
+
+Pump Relay:
+  VCC  →  ESP32 5V
+  GND  →  ESP32 GND
+  IN   →  GPIO 32
+```
+
+**⚠️ Power Requirements:**
+- Rover needs **12V battery** for motors
+- Use **7805 voltage regulator** or **buck converter** to get 5V for ESP32
+- Servos need stable 5V (use separate regulator if needed)
+
+---
+
+### 3.3 ROVER MOVEMENT ESP8266
+
+#### Pin Connections:
+```
+L298N Motor Driver (Wheels):
+  12V    →  External 12V battery
+  GND    →  Common ground
+  5V     →  ESP8266 VIN
+  ENA    →  D0
+  IN1    →  D1
+  IN2    →  D2
+  IN3    →  D3
+  IN4    →  D4
+  ENB    →  D5
+  OUT1/2 →  Left Motor
+  OUT3/4 →  Right Motor
+```
+
+---
+
+### 3.4 TANK MONITOR ESP32
+
+#### Pin Connections:
+```
+Ultrasonic Sensor (HC-SR04):
+  VCC  →  ESP32 5V
+  GND  →  ESP32 GND
+  TRIG →  GPIO 12
+  ECHO →  GPIO 13
+
+LoRa Module:
+  (Same pin configuration as irrigation node)
+
+Power:
+  ESP32 powered by solar panel + battery (optional)
+  Use TP4056 charging module for Li-ion battery
+```
+
+---
+
+## 4️⃣ CODE CONFIGURATION
+
+### 4.1 Drip Irrigation ESP32
+
+Open the code and update these lines:
+
+```cpp
+// Line 22: Database Secret
+#define DATABASE_SECRET "AIza...your_actual_secret_from_firebase"
+
+// Line 28: GSM APN (Change based on your SIM)
+// Airtel: airtelgprs.com
+// Jio: jionet
+// Vodafone: www
+// BSNL: bsnlnet
+#define GSM_APN "airtelgprs.com"
+
+// Line 32: OpenWeather API Key (your key from openweathermap.org)
+#define WEATHER_API_KEY "your_openweather_api_key"
+
+// Line 403: SMS Phone Number (for alerts)
+sendSMS("+919876543210", "Tank water level low!");
+```
+
+**Getting Database Secret:**
+1. Firebase Console → Project Settings
+2. Service accounts tab
+3. Database secrets → Show/Add secret
+4. Copy the secret key
+
+**Getting OpenWeather API Key:**
+1. Go to https://openweathermap.org/api
+2. Sign up (free)
+3. API keys tab → Copy key
+
+---
+
+### 4.2 Rover Main ESP32
+
+Update these lines:
+
+```cpp
+// Line 13: Database Secret
+#define DATABASE_SECRET "your_firebase_database_secret"
+
+// Line 7-8: WiFi Hotspot (optional - change if needed)
+const char* ssid = "AgriRover";
+const char* password = "rover123";
+```
+
+---
+
+### 4.3 Rover Movement ESP8266
+
+Update WiFi credentials:
+
+```cpp
+// Lines 6-7
+const char* ssid = "AgriRover";      // Must match Rover ESP32 hotspot
+const char* password = "rover123";
+```
+
+---
+
+### 4.4 Tank Monitor ESP32
+
+Adjust tank specifications:
+
+```cpp
+// Line 17: Your tank's total height in cm
+#define TANK_HEIGHT_CM 200.0
+
+// Line 18: Distance from sensor mounting to full water level
+#define SENSOR_OFFSET_CM 5.0
+```
+
+**How to measure:**
+1. Measure tank height from bottom to top
+2. Measure distance from sensor location to full water surface
+3. Update these values
+
+---
+
+## 5️⃣ UPLOAD PROCEDURE
+
+### 5.1 Drip Irrigation ESP32
+
+1. Connect ESP32 to computer via USB
+2. **Tools → Board → ESP32 Dev Module**
+3. **Tools → Port → Select COM port**
+4. **Tools → Upload Speed → 115200**
+5. Click **Upload** button
+6. Wait for "Done uploading"
+7. Open **Serial Monitor** (115200 baud)
+8. Press ESP32 **RST button**
+9. Verify output shows:
+   ```
+   ===== DRIP IRRIGATION NODE STARTING =====
+   ✓ LoRa initialized
+   Connecting to GSM...
+   ✓ GSM Connected!
+   ✓ Firebase connected!
+   ===== SYSTEM READY =====
+   ```
+
+**Troubleshooting Upload:**
+- If upload fails, hold **BOOT button** while clicking upload
+- Release BOOT when "Connecting..." appears
+
+---
+
+### 5.2 Rover Main ESP32
+
+1. Same upload procedure as above
+2. Select **ESP32 Dev Module**
+3. Verify Serial Monitor shows:
+   ```
+   ===== ROVER MAIN CONTROLLER STARTING =====
+   ✓ WiFi Hotspot Created
+   SSID: AgriRover
+   IP Address: 192.168.4.1
+   ✓ Web server started
+   ===== SYSTEM READY =====
+   ```
+
+---
+
+### 5.3 Rover Movement ESP8266
+
+1. **Tools → Board → NodeMCU 1.0 (ESP-12E Module)**
+2. **Tools → Port → Select COM port**
+3. **Tools → Upload Speed → 115200**
+4. Upload code
+5. Verify Serial Monitor (9600 baud) shows:
+   ```
+   ===== ROVER MOVEMENT CONTROLLER =====
+   Connecting to Rover WiFi.....
+   ✓ Connected to Rover!
+   IP Address: 192.168.4.2
+   ===== SYSTEM READY =====
+   ```
+
+---
+
+### 5.4 Tank Monitor ESP32
+
+1. Upload using same procedure as Drip Irrigation
+2. Verify Serial Monitor shows:
+   ```
+   ===== TANK LEVEL MONITOR =====
+   ✓ LoRa initialized
+   Frequency: 433 MHz
+   ===== SYSTEM READY =====
+   Distance: 45.2 cm | Water Level: 75.5%
+   ✓ Transmitted: TANK:75.5
+   ```
+
+---
+
+## 6️⃣ TESTING GUIDE
+
+### 6.1 Test Drip Irrigation Node
+
+**Step 1: Test Sensors**
+```
+Watch Serial Monitor:
+T: 25.3°C | H: 65.2% | M: 45.8%
+✓ Data uploaded to Firebase
+```
+
+**Step 2: Test Valve Control**
+- Go to Firebase Console → Realtime Database
+- Set `/irrigation/valve/command` to `"OPEN"`
+- Relay should click and valve opens
+- Serial shows: `✓ VALVE OPENED`
+
+**Step 3: Test Crop Intelligence**
+- Set `/irrigation/crop_intelligence/status` to `"ON"`
+- System auto-controls based on thresholds
+
+**Step 4: Test LoRa Reception**
+- Turn on Tank Monitor
+- Serial shows: `LoRa: Tank level received: 75.5%`
+
+---
+
+### 6.2 Test Rover System
+
+**Step 1: Connect to Rover**
+- Open phone WiFi settings
+- Connect to "AgriRover" network
+- Password: rover123
+
+**Step 2: Test Movement**
+- Open browser: `http://192.168.4.1/rover/move/forward`
+- Rover should move forward
+- Try: `/backward`, `/left`, `/right`, `/stop`
+
+**Step 3: Test Plantation Sequence**
+- Open: `http://192.168.4.1/rover/plant/start`
+- Watch Serial Monitor for step-by-step execution
+- Verify:
+  - Rack moves down
+  - Disc rotates 60°
+  - Flap opens/closes
+  - Rack moves up
+
+**Step 4: Test Dashboard**
+- Open your deployed dashboard
+- Click "Rover Control"
+- Select crop and stage
+- Use arrow buttons for movement
+- Click "START PLANTING"
+
+---
+
+## 7️⃣ TROUBLESHOOTING
+
+### Issue: ESP32 won't upload code
+**Solution:**
+- Hold BOOT button during upload
+- Check USB cable (needs data lines, not just power)
+- Try different COM port
+- Reduce upload speed to 921600 or 460800
+
+### Issue: GSM module not connecting
+**Solution:**
+- Check power supply (needs 2A minimum)
+- Verify SIM card has active data plan
+- Check APN settings for your carrier
+- Move to location with good signal
+- Wait 30 seconds for network registration
+
+### Issue: Firebase connection fails
+**Solution:**
+- Verify DATABASE_URL is correct
+- Check DATABASE_SECRET is valid
+- Ensure GSM has internet (ping test)
+- Check Firebase rules allow writes
+
+### Issue: LoRa not receiving
+**Solution:**
+- Both modules must use same frequency (433 MHz)
+- Check antenna connections
+- Verify pin connections
+- Test range (start close, then increase distance)
+
+### Issue: Sensors reading wrong values
+**Solution:**
+- **DHT11:** Add 10kΩ pullup resistor on data line
+- **Soil Moisture:** Calibrate by testing in dry/wet soil
+- **Ultrasonic:** Check if echo pin has clean signal
+
+### Issue: Motors not moving
+**Solution:**
+- Check 12V battery charge
+- Verify motor driver connections
+- Test motors directly with battery
+- Check if EN pins have PWM signal
+
+### Issue: Servos jittering
+**Solution:**
+- Use separate 5V power supply (not ESP32 pin)
+- Add 1000µF capacitor across servo power
+- Ensure common ground connection
+
+---
+
+## 📞 ADDITIONAL RESOURCES
+
+**Firebase Documentation:**
+https://firebase.google.com/docs/database
+
+**ESP32 Pinout Reference:**
+https://randomnerdtutorials.com/esp32-pinout-reference-gpios/
+
+**LoRa Tutorial:**
+https://randomnerdtutorials.com/esp32-lora-rfm95-transceiver-arduino-ide/
+
+**GSM AT Commands:**
+https://www.tutorialspoint.com/gsm/gsm_at_commands.htm
+
+---
+
+## ✅ PRE-DEPLOYMENT CHECKLIST
+
+Before taking to field:
+
+### Hardware:
+- [ ] All connections soldered (no loose wires)
+- [ ] Power supplies rated correctly
+- [ ] Waterproof enclosures for outdoor nodes
+- [ ] Antennas properly attached
+- [ ] Sensors calibrated
+
+### Software:
+- [ ] Firebase credentials updated
+- [ ] GSM APN configured
+- [ ] Phone numbers for SMS updated
+- [ ] Crop thresholds verified in database
+- [ ] All codes uploaded successfully
+
+### Testing:
+- [ ] Sensors reading accurately
+- [ ] Motors/servos moving smoothly
+- [ ] Firebase sync working
+- [ ] LoRa communication confirmed
+- [ ] Weather API responding
+- [ ] Dashboard controls working
+
+### Field Setup:
+- [ ] Solar panels positioned (if used)
+- [ ] GSM antenna has clear sky view
+- [ ] Tank sensor mounted correctly
+- [ ] Rover battery fully charged
+- [ ] Backup SIM card available
+
+---
+
+## 🎉 YOU'RE READY!
+
+Your complete agriculture automation system is now configured and ready for deployment!
+
+**Next Steps:**
+1. Field test for 24 hours
+2. Monitor logs for any errors
+3. Fine-tune sensor thresholds
+4. Train farmers on dashboard usage
+5. Set up routine maintenance schedule
+
+Good luck with your SIH project! 🌾🚜
