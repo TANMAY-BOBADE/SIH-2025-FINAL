@@ -1,11 +1,15 @@
 #include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>
+#include <FirebaseESP8266.h>
 
-// =================== WIFI CONFIG ===================
-const char* ssid = "AgriRover";      // Connect to Rover's hotspot
-const char* password = "rover123";
+// =================== 1. PHONE HOTSPOT CREDENTIALS ===================
+const char* ssid = "YOUR_HOTSPOT_NAME";
+const char* password = "YOUR_HOTSPOT_PASSWORD";
 
-// =================== MOTOR PINS ===================
+// =================== 2. FIREBASE CONFIG ===================
+#define DATABASE_URL "https://kissan-agriculture-sih-default-rtdb.asia-southeast1.firebasedatabase.app"
+#define DATABASE_SECRET "YOUR_DATABASE_SECRET_HERE"
+
+// =================== MOTOR PINS (L298N) ===================
 #define ENA D0
 #define IN1 D1
 #define IN2 D2
@@ -13,142 +17,92 @@ const char* password = "rover123";
 #define IN4 D4
 #define ENB D5
 
-// =================== VARIABLES ===================
-int motorSpeed = 200; // Default speed (0-255)
-ESP8266WebServer server(80);
+// =================== OBJECTS ===================
+FirebaseData firebaseData;
+FirebaseAuth auth;
+FirebaseConfig config;
 
-// =================== SETUP ===================
+String currentDirection = "STOP";
+int motorSpeed = 255; // Max Speed
+
 void setup() {
   Serial.begin(9600);
   Serial.println("\n===== ROVER MOVEMENT CONTROLLER =====");
   
-  // Initialize motor pins
-  pinMode(ENA, OUTPUT);
-  pinMode(IN1, OUTPUT);
-  pinMode(IN2, OUTPUT);
-  pinMode(IN3, OUTPUT);
-  pinMode(IN4, OUTPUT);
-  pinMode(ENB, OUTPUT);
-  
-  // Stop all motors
+  // Init Pins
+  pinMode(ENA, OUTPUT); pinMode(ENB, OUTPUT);
+  pinMode(IN1, OUTPUT); pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT); pinMode(IN4, OUTPUT);
   stopMotors();
-  
-  // Connect to Rover's WiFi hotspot
+
+  // Connect to Phone Hotspot
   WiFi.begin(ssid, password);
-  Serial.print("Connecting to Rover WiFi");
-  
+  Serial.print("Connecting to Hotspot");
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-  
-  Serial.println("\n✓ Connected to Rover!");
+  Serial.println("\n✓ Connected to Internet!");
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
-  
-  // Setup web server routes
-  setupRoutes();
-  server.begin();
-  Serial.println("✓ Web server started");
-  Serial.println("===== SYSTEM READY =====\n");
+
+  // Init Firebase
+  config.database_url = DATABASE_URL;
+  config.signer.tokens.legacy_token = DATABASE_SECRET;
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
+  Serial.println("🔥 Firebase Initialized");
 }
 
-// =================== MAIN LOOP ===================
 void loop() {
-  server.handleClient();
-}
-
-// =================== WEB SERVER ROUTES ===================
-void setupRoutes() {
-  server.on("/rover/move/forward", HTTP_GET, []() {
-    Serial.println("Moving FORWARD");
-    moveForward();
-    sendResponse(200, "success", "forward");
-  });
-  
-  server.on("/rover/move/backward", HTTP_GET, []() {
-    Serial.println("Moving BACKWARD");
-    moveBackward();
-    sendResponse(200, "success", "backward");
-  });
-  
-  server.on("/rover/move/left", HTTP_GET, []() {
-    Serial.println("Turning LEFT");
-    turnLeft();
-    sendResponse(200, "success", "left");
-  });
-  
-  server.on("/rover/move/right", HTTP_GET, []() {
-    Serial.println("Turning RIGHT");
-    turnRight();
-    sendResponse(200, "success", "right");
-  });
-  
-  server.on("/rover/stop", HTTP_GET, []() {
-    Serial.println("STOPPED");
-    stopMotors();
-    sendResponse(200, "success", "stop");
-  });
-  
-  server.on("/rover/speed", HTTP_GET, []() {
-    if (server.hasArg("value")) {
-      motorSpeed = server.arg("value").toInt();
-      motorSpeed = constrain(motorSpeed, 0, 255);
-      Serial.printf("Speed set to: %d\n", motorSpeed);
-      sendResponse(200, "success", "speed:" + String(motorSpeed));
-    } else {
-      sendResponse(400, "error", "Missing speed value");
+  // Listen for Movement Command from Dashboard
+  // Path: /rover/controls/movement
+  if (Firebase.getString(firebaseData, "/rover/controls/movement")) {
+    String newDirection = firebaseData.stringData();
+    
+    // Only act if direction changed to prevent stuttering
+    if (newDirection != currentDirection) {
+      currentDirection = newDirection;
+      Serial.println("Command: " + currentDirection);
+      
+      if (currentDirection == "UP") moveForward();
+      else if (currentDirection == "DOWN") moveBackward();
+      else if (currentDirection == "LEFT") turnLeft();
+      else if (currentDirection == "RIGHT") turnRight();
+      else stopMotors();
     }
-  });
-  
-  server.enableCORS(true);
+  } else {
+      // If error or empty, stop for safety
+      // stopMotors(); 
+  }
 }
 
-void sendResponse(int code, String status, String action) {
-  String json = "{\"status\":\"" + status + "\",\"action\":\"" + action + "\"}";
-  server.send(code, "application/json", json);
-}
-
-// =================== MOTOR CONTROL FUNCTIONS ===================
+// =================== MOTOR FUNCTIONS ===================
 void moveForward() {
-  analogWrite(ENA, motorSpeed);
-  analogWrite(ENB, motorSpeed);
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, HIGH);
-  digitalWrite(IN3, HIGH);
-  digitalWrite(IN4, LOW);
+  analogWrite(ENA, motorSpeed); analogWrite(ENB, motorSpeed);
+  digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
 }
 
 void moveBackward() {
-  analogWrite(ENA, motorSpeed);
-  analogWrite(ENB, motorSpeed);
-  digitalWrite(IN1, HIGH);
-  digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW);
-  digitalWrite(IN4, HIGH);
+  analogWrite(ENA, motorSpeed); analogWrite(ENB, motorSpeed);
+  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
 }
 
 void turnLeft() {
-  analogWrite(ENA, motorSpeed);
-  analogWrite(ENB, motorSpeed);
-  digitalWrite(IN1, HIGH);
-  digitalWrite(IN2, LOW);
-  digitalWrite(IN3, HIGH);
-  digitalWrite(IN4, LOW);
+  analogWrite(ENA, motorSpeed); analogWrite(ENB, motorSpeed);
+  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
 }
 
 void turnRight() {
-  analogWrite(ENA, motorSpeed);
-  analogWrite(ENB, motorSpeed);
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, HIGH);
-  digitalWrite(IN3, LOW);
-  digitalWrite(IN4, HIGH);
+  analogWrite(ENA, motorSpeed); analogWrite(ENB, motorSpeed);
+  digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
 }
 
 void stopMotors() {
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW);
-  digitalWrite(IN4, LOW);
+  digitalWrite(IN1, LOW); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW); digitalWrite(IN4, LOW);
 }
