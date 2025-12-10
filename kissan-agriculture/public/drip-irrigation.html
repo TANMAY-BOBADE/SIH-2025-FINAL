@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ड्रिप सिंचाई नियंत्रण</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #2E7D32 0%, #1B5E20 100%);
+      min-height: 100vh;
+      padding: 20px;
+      color: #333;
+    }
+
+    /* --- Reusable Header Style --- */
+    .header {
+      background: rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(10px);
+      padding: 20px;
+      border-radius: 20px;
+      margin-bottom: 30px;
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    }
+
+    .back-btn {
+      background: rgba(255, 255, 255, 0.2);
+      border: 1px solid rgba(255,255,255,0.4);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 50px;
+      text-decoration: none;
+      font-weight: bold;
+      transition: all 0.3s;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .back-btn:hover { background: white; color: #2E7D32; }
+
+    .main-container { max-width: 1200px; margin: 0 auto; }
+
+    /* --- Section Styling --- */
+    .control-section {
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 25px;
+      padding: 30px;
+      margin-bottom: 25px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      animation: slideUp 0.5s ease-out;
+    }
+
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .section-title {
+      font-size: 20px;
+      color: #2E7D32;
+      font-weight: bold;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 2px solid #e0e0e0;
+      padding-bottom: 10px;
+    }
+
+    /* --- Crop Grid --- */
+    .crop-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+    }
+
+    .crop-card {
+      background: #f5f5f5;
+      border: 2px solid transparent;
+      border-radius: 15px;
+      padding: 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .crop-card:hover { transform: translateY(-3px); background: #fff; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+    
+    .crop-card.selected {
+      border-color: #2E7D32;
+      background: #e8f5e9;
+      transform: scale(1.02);
+      box-shadow: 0 5px 15px rgba(46, 125, 50, 0.3);
+    }
+
+    .crop-icon { font-size: 40px; margin-bottom: 10px; display: block; }
+    .crop-name { font-weight: bold; font-size: 16px; }
+
+    /* --- Stage Selection --- */
+    .stage-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      display: none; /* Hidden by default */
+    }
+
+    .stage-btn {
+      padding: 12px 25px;
+      border: 2px solid #ddd;
+      background: white;
+      border-radius: 50px;
+      cursor: pointer;
+      font-size: 15px;
+      transition: all 0.3s;
+      flex-grow: 1;
+      text-align: center;
+    }
+
+    .stage-btn:hover { border-color: #2E7D32; color: #2E7D32; }
+    
+    .stage-btn.selected {
+      background: #2E7D32;
+      color: white;
+      border-color: #2E7D32;
+      box-shadow: 0 4px 10px rgba(46, 125, 50, 0.3);
+    }
+
+    /* --- Controls Area --- */
+    .controls-wrapper {
+      display: none; /* Hidden by default */
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .control-card {
+      background: #fff;
+      padding: 25px;
+      border-radius: 20px;
+      border: 1px solid #eee;
+      text-align: center;
+    }
+
+    /* Toggle Switch */
+    .toggle-container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 15px;
+    }
+
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 60px;
+      height: 34px;
+    }
+    
+    .switch input { opacity: 0; width: 0; height: 0; }
+    
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #ccc;
+      transition: .4s;
+      border-radius: 34px;
+    }
+    
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 26px; width: 26px;
+      left: 4px; bottom: 4px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+    
+    input:checked + .slider { background-color: #2E7D32; }
+    input:checked + .slider:before { transform: translateX(26px); }
+
+    /* Manual Button */
+    .manual-btn {
+      width: 100%;
+      padding: 20px;
+      border: none;
+      border-radius: 15px;
+      font-size: 18px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.3s;
+      margin-top: 15px;
+    }
+
+    .btn-off { background: #ffebee; color: #c62828; border: 2px solid #c62828; }
+    .btn-on { background: #e8f5e9; color: #2E7D32; border: 2px solid #2E7D32; box-shadow: 0 0 15px rgba(46, 125, 50, 0.4); }
+
+    /* --- Status Monitor --- */
+    .live-status {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 15px;
+      margin-top: 20px;
+    }
+
+    .status-box {
+      background: #f9f9f9;
+      padding: 15px;
+      border-radius: 12px;
+      text-align: center;
+    }
+
+    .status-value { font-size: 24px; font-weight: bold; color: #2E7D32; }
+    .status-label { font-size: 12px; color: #666; }
+
+    /* Loading Overlay */
+    .overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(255,255,255,0.8);
+      backdrop-filter: blur(5px);
+      z-index: 100;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.3s;
+    }
+    .overlay.active { opacity: 1; pointer-events: all; }
+
+    @media (max-width: 768px) {
+      .controls-wrapper { grid-template-columns: 1fr; }
+      .live-status { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="overlay" id="loadingOverlay">
+    <div style="font-size: 40px; animation: spin 1s infinite linear;">⚙️</div>
+    <p style="margin-top: 10px; font-weight: bold; color: #2E7D32;">अपडेट हो रहा है...</p>
+  </div>
+
+  <div class="main-container">
+    <div class="header">
+      <div style="display: flex; align-items: center; gap: 15px;">
+        <span style="font-size: 30px;">💧</span>
+        <div>
+          <h1 style="font-size: 24px;">ड्रिप सिंचाई नियंत्रण</h1>
+          <p style="font-size: 14px; opacity: 0.9;">फसल आधारित स्वचालित सिंचाई</p>
+        </div>
+      </div>
+      <a href="dashboard.html" class="back-btn">← वापस जाएं</a>
+    </div>
+
+    <div class="control-section">
+      <div class="section-title">
+        <span>🌱</span> 1. फसल का चयन करें
+      </div>
+      <div class="crop-grid">
+        <div class="crop-card" onclick="selectCrop('turmeric', this)">
+          <span class="crop-icon">🌿</span>
+          <div class="crop-name">हल्दी (Turmeric)</div>
+        </div>
+        <div class="crop-card" onclick="selectCrop('ginger', this)">
+          <span class="crop-icon">🫚</span>
+          <div class="crop-name">अदरक (Ginger)</div>
+        </div>
+        <div class="crop-card" onclick="selectCrop('potato', this)">
+          <span class="crop-icon">🥔</span>
+          <div class="crop-name">आलू (Potato)</div>
+        </div>
+        <div class="crop-card" onclick="selectCrop('maize', this)">
+          <span class="crop-icon">🌽</span>
+          <div class="crop-name">मक्का (Maize)</div>
+        </div>
+        <div class="crop-card" onclick="selectCrop('cardamom', this)">
+          <span class="crop-icon">🌰</span>
+          <div class="crop-name">बड़ी इलायची</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="control-section" id="stageSection" style="display: none;">
+      <div class="section-title">
+        <span>📈</span> 2. विकास का चरण चुनें
+      </div>
+      <div class="stage-container" id="stageButtons">
+        </div>
+    </div>
+
+    <div class="controls-wrapper" id="controlWrapper">
+      
+      <div class="control-card">
+        <h3 style="color: #2E7D32; margin-bottom: 15px;">🧠 क्रॉप इंटेलिजेंस (AI)</h3>
+        <p style="font-size: 14px; color: #666; margin-bottom: 20px;">
+          सेंसर डेटा के आधार पर स्वचालित सिंचाई
+        </p>
+        
+        <div class="toggle-container">
+          <span style="font-weight: bold;">स्वतः मोड (Auto Mode)</span>
+          <label class="switch">
+            <input type="checkbox" id="intelligenceToggle">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div style="margin-top: 20px; font-size: 12px; background: #e3f2fd; padding: 10px; border-radius: 8px; color: #1565c0;">
+          ℹ️ चालू होने पर सिस्टम मिट्टी की नमी की जांच करेगा और आवश्यकतानुसार पानी देगा।
+        </div>
+      </div>
+
+      <div class="control-card">
+        <h3 style="color: #2E7D32; margin-bottom: 15px;">🎮 मैनुअल नियंत्रण</h3>
+        <button id="manualBtn" class="manual-btn btn-off">
+          वाल्व बंद है (Valve OFF)
+        </button>
+
+        <div class="live-status">
+          <div class="status-box">
+            <div class="status-value" id="soilMoist">--%</div>
+            <div class="status-label">मिट्टी नमी</div>
+          </div>
+          <div class="status-box">
+            <div class="status-value" id="temp">--°C</div>
+            <div class="status-label">तापमान</div>
+          </div>
+          <div class="status-box">
+            <div class="status-value" id="tankLevel">--%</div>
+            <div class="status-label">टंकी स्तर</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getDatabase, ref, update, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+    // ⚠️ REPLACE WITH YOUR FIREBASE CONFIG
+  const firebaseConfig = {
+    apiKey: "AIzaSyATzKfgr33EINt4u0R0ZhFdNsxamVdcESI",
+    authDomain: "kissan-agriculture-sih.firebaseapp.com",
+    databaseURL: "https://kissan-agriculture-sih-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "kissan-agriculture-sih",
+    storageBucket: "kissan-agriculture-sih.firebasestorage.app",
+    messagingSenderId: "351965727798",
+    appId: "1:351965727798:web:5562e5befcd15c14261c97",
+    measurementId: "G-JYHXVTWGK3"
+  };
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // --- Data Definitions ---
+    const cropStages = {
+      'turmeric': ['अंकुरण (Germination)', 'वनस्पति (Vegetative)', 'प्रकंद प्रारंभ', 'परिपक्वता'],
+      'ginger': ['अंकुरण', 'वनस्पति विकास', 'प्रकंद गठन', 'कटाई'],
+      'potato': ['अंकुरण', 'स्टोलन गठन', 'कंद गठन', 'परिपक्वता'],
+      'maize': ['अंकुरण', 'वनस्पति', 'फूल आना', 'दाना भरना'],
+      'cardamom': ['नर्सरी', 'सक्रिय विकास', 'फूल आना', 'फल लगना']
+    };
+
+    // --- UI Interactions ---
+
+    // 1. Crop Selection
+    window.selectCrop = function(cropName, element) {
+      // Highlight UI
+      document.querySelectorAll('.crop-card').forEach(el => el.classList.remove('selected'));
+      element.classList.add('selected');
+
+      // Show Stages
+      const stageSection = document.getElementById('stageSection');
+      const stageButtons = document.getElementById('stageButtons');
+      const controlWrapper = document.getElementById('controlWrapper');
+      
+      stageSection.style.display = 'block';
+      controlWrapper.style.display = 'none'; // Hide controls until stage selected
+      
+      // Generate Buttons
+      stageButtons.innerHTML = '';
+      stageButtons.style.display = 'flex';
+      
+      cropStages[cropName].forEach(stage => {
+        const btn = document.createElement('div');
+        btn.className = 'stage-btn';
+        btn.textContent = stage;
+        btn.onclick = () => selectStage(cropName, stage, btn);
+        stageButtons.appendChild(btn);
+      });
+
+      // Animation
+      stageSection.style.animation = 'none';
+      stageSection.offsetHeight; /* trigger reflow */
+      stageSection.style.animation = 'slideUp 0.5s ease-out';
+    }
+
+    // 2. Stage Selection
+    window.selectStage = function(crop, stage, element) {
+      // Highlight UI
+      document.querySelectorAll('.stage-btn').forEach(el => el.classList.remove('selected'));
+      element.classList.add('selected');
+
+      // Show Controls
+      const controlWrapper = document.getElementById('controlWrapper');
+      controlWrapper.style.display = 'grid';
+      controlWrapper.style.animation = 'slideUp 0.5s ease-out';
+
+      // Update Firebase
+      showLoading();
+      update(ref(db, 'irrigation'), {
+        selected_crop: crop,
+        selected_stage: stage
+      }).then(hideLoading);
+    }
+
+    // 3. Toggle Auto Mode
+    document.getElementById('intelligenceToggle').addEventListener('change', (e) => {
+      const isAuto = e.target.checked;
+      update(ref(db, 'irrigation/crop_intelligence'), {
+        status: isAuto ? "ON" : "OFF",
+        mode: isAuto ? "AUTO" : "MANUAL"
+      });
+    });
+
+    // 4. Manual Valve Button
+    const manualBtn = document.getElementById('manualBtn');
+    manualBtn.addEventListener('click', () => {
+      const currentText = manualBtn.innerText;
+      const isOff = currentText.includes("OFF");
+      const newCommand = isOff ? "OPEN" : "CLOSE";
+      
+      update(ref(db, 'irrigation/valve'), {
+        command: newCommand,
+        state: newCommand === "OPEN" ? "OPEN" : "CLOSED"
+      });
+    });
+
+    // --- Firebase Listeners (Real-time Sync) ---
+    onValue(ref(db, 'irrigation'), (snapshot) => {
+      const data = snapshot.val();
+      if(data) {
+        // Sync Toggle
+        const isAuto = data.crop_intelligence && data.crop_intelligence.status === "ON";
+        document.getElementById('intelligenceToggle').checked = isAuto;
+        
+        // Sync Manual Button
+        const valveState = data.valve && data.valve.state === "OPEN";
+        if(valveState) {
+          manualBtn.innerHTML = "🚰 वाल्व चालू है (Valve ON)";
+          manualBtn.className = "manual-btn btn-on";
+        } else {
+          manualBtn.innerHTML = "🚫 वाल्व बंद है (Valve OFF)";
+          manualBtn.className = "manual-btn btn-off";
+        }
+
+        // Sync Sensor Data
+        if(data.sensors) {
+          document.getElementById('soilMoist').innerText = (data.sensors.moisture || 0) + '%';
+          document.getElementById('temp').innerText = (data.sensors.temperature || 0) + '°C';
+        }
+        if(data.tank) {
+          document.getElementById('tankLevel').innerText = (data.tank.level_percent || 0) + '%';
+        }
+      }
+    });
+
+    // Helper: Loading Animation
+    function showLoading() { document.getElementById('loadingOverlay').classList.add('active'); }
+    function hideLoading() { setTimeout(() => document.getElementById('loadingOverlay').classList.remove('active'), 500); }
+
+  </script>
+</body>
+</html>

@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rover Control</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #37474f 0%, #263238 100%);
+      min-height: 100vh;
+      padding: 20px;
+      color: white;
+    }
+
+    /* --- Header --- */
+    .header {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      padding: 20px;
+      border-radius: 20px;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .back-btn {
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 50px;
+      text-decoration: none;
+      font-weight: bold;
+      transition: all 0.3s;
+    }
+    .back-btn:hover { background: white; color: #37474f; }
+
+    .main-container { max-width: 1200px; margin: 0 auto; }
+
+    /* --- SENSOR STRIP (NEW) --- */
+    .rover-sensors {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 15px;
+        margin-bottom: 25px;
+        background: rgba(0, 0, 0, 0.4);
+        padding: 15px;
+        border-radius: 20px;
+        border: 1px solid rgba(255,255,255,0.1);
+    }
+    .r-sensor-box {
+        text-align: center;
+        background: rgba(255, 255, 255, 0.05);
+        padding: 15px;
+        border-radius: 15px;
+        transition: transform 0.2s;
+    }
+    .r-sensor-box:hover { transform: translateY(-2px); background: rgba(255,255,255,0.1); }
+    .rs-label { font-size: 13px; color: #bbb; text-transform: uppercase; margin-bottom: 5px; }
+    .rs-val { font-size: 22px; font-weight: bold; color: #4caf50; }
+
+    /* --- Control Section --- */
+    .control-section {
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 25px;
+      padding: 30px;
+      margin-bottom: 25px;
+      color: #333;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      animation: slideUp 0.5s ease-out;
+    }
+
+    .section-title {
+      font-size: 20px;
+      color: #2E7D32;
+      font-weight: bold;
+      margin-bottom: 20px;
+      border-bottom: 2px solid #e0e0e0;
+      padding-bottom: 10px;
+    }
+
+    /* Crop Grid */
+    .crop-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 15px; }
+    .crop-card {
+      background: #f5f5f5; padding: 20px; border-radius: 15px; text-align: center; cursor: pointer; transition: all 0.3s;
+    }
+    .crop-card:hover { transform: translateY(-3px); background: #fff; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+    .crop-card.selected { background: #e8f5e9; border: 2px solid #2E7D32; transform: scale(1.02); }
+    .crop-icon { font-size: 35px; display: block; margin-bottom: 10px; }
+
+    /* Stage Buttons */
+    .stage-container { display: flex; flex-wrap: wrap; gap: 10px; }
+    .stage-btn {
+      padding: 12px 25px; border: 2px solid #ddd; background: white; border-radius: 50px; cursor: pointer; flex-grow: 1; text-align: center;
+    }
+    .stage-btn.selected { background: #2E7D32; color: white; border-color: #2E7D32; }
+
+    /* --- Rover Interface --- */
+    .rover-interface {
+      display: none; /* Hidden initially */
+      grid-template-columns: 1fr 1fr;
+      gap: 30px;
+      animation: fadeIn 0.8s ease-out;
+    }
+
+    .d-pad-container {
+      background: rgba(255,255,255,0.05);
+      backdrop-filter: blur(5px);
+      padding: 40px;
+      border-radius: 30px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .d-pad-grid {
+      display: grid;
+      grid-template-columns: 80px 80px 80px;
+      grid-template-rows: 80px 80px 80px;
+      gap: 10px;
+    }
+
+    .d-btn {
+      width: 100%; height: 100%;
+      border-radius: 15px;
+      border: none;
+      font-size: 24px;
+      color: white;
+      background: #546e7a;
+      box-shadow: 0 6px 0 #37474f;
+      cursor: pointer;
+      transition: all 0.1s;
+    }
+    .d-btn:active { transform: translateY(6px); box-shadow: none; }
+    .d-btn.center { background: #cfd8dc; color: #333; cursor: default; box-shadow: none; }
+
+    .actions-container { display: flex; flex-direction: column; gap: 20px; }
+    .action-card {
+      background: rgba(255,255,255,0.95);
+      padding: 25px;
+      border-radius: 20px;
+      color: #333;
+      text-align: center;
+      flex: 1;
+      display: flex; flex-direction: column; justify-content: center;
+    }
+
+    .big-btn {
+      width: 100%; padding: 20px;
+      border: none; border-radius: 15px;
+      font-size: 18px; font-weight: bold; color: white;
+      cursor: pointer; transition: transform 0.2s;
+      margin-top: 15px;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    }
+    .btn-plant { background: linear-gradient(135deg, #43a047, #2e7d32); }
+    .btn-water { background: linear-gradient(135deg, #039be5, #0277bd); }
+    .big-btn:active { transform: scale(0.95); }
+
+    /* Terminal */
+    .status-terminal {
+      background: #212121;
+      border-radius: 15px;
+      padding: 15px;
+      font-family: 'Courier New', monospace;
+      height: 120px;
+      overflow-y: auto;
+      border: 1px solid #424242;
+      margin-top: 30px;
+      font-size: 13px;
+    }
+    .log-line { margin-bottom: 5px; border-bottom: 1px solid #333; padding-bottom: 2px; }
+    .log-time { color: #80cbc4; margin-right: 10px; }
+    .log-msg { color: #e0e0e0; }
+
+    @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    @media (max-width: 768px) { .rover-interface { grid-template-columns: 1fr; } .rover-sensors { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+
+  <div class="main-container">
+    <div class="header">
+      <div style="display: flex; align-items: center; gap: 15px;">
+        <span style="font-size: 30px;">🚜</span>
+        <div>
+          <h1 style="font-size: 24px; margin: 0;" data-i18n="rover_control">Rover Control</h1>
+          <select id="langSelector" onchange="setLanguage(this.value)" style="background:#37474f; color:white; border:1px solid #555; padding:5px; border-radius:10px; margin-top:5px; font-size:12px;">
+             <option value="hi">हिंदी</option>
+             <option value="en">English</option>
+             <option value="ne">नेपाली</option>
+          </select>
+        </div>
+      </div>
+      <a href="dashboard.html" class="back-btn">← Home</a>
+    </div>
+
+    <div class="rover-sensors">
+        <div class="r-sensor-box">
+            <div class="rs-label"><i class="fas fa-thermometer-half"></i> <span data-i18n="temp">Temp</span></div>
+            <div class="rs-val" id="rTemp">--°C</div>
+        </div>
+        <div class="r-sensor-box">
+            <div class="rs-label"><i class="fas fa-tint"></i> <span data-i18n="hum">Humidity</span></div>
+            <div class="rs-val" id="rHum">--%</div>
+        </div>
+        <div class="r-sensor-box">
+            <div class="rs-label"><i class="fas fa-seedling"></i> <span data-i18n="moist">Moisture</span></div>
+            <div class="rs-val" id="rMoist">--%</div>
+        </div>
+    </div>
+
+    <div class="control-section" id="selectionPanel">
+      <div class="section-title"><span data-i18n="setup_crop">1. Select Crop & Stage</span></div>
+      
+      <div class="crop-grid">
+        <div class="crop-card" onclick="selectCrop('turmeric', this)"><span class="crop-icon">🌿</span> Turmeric</div>
+        <div class="crop-card" onclick="selectCrop('ginger', this)"><span class="crop-icon">🫚</span> Ginger</div>
+        <div class="crop-card" onclick="selectCrop('potato', this)"><span class="crop-icon">🥔</span> Potato</div>
+        <div class="crop-card" onclick="selectCrop('maize', this)"><span class="crop-icon">🌽</span> Maize</div>
+      </div>
+
+      <div id="stageWrapper" style="display: none; margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 20px;">
+        <div class="stage-container" id="stageButtons"></div>
+      </div>
+    </div>
+
+    <div class="rover-interface" id="roverInterface">
+      <div class="d-pad-container">
+        <div class="d-pad-grid">
+          <div></div> 
+          <button class="d-btn" onmousedown="move('UP')" onmouseup="move('STOP')" ontouchstart="move('UP')" ontouchend="move('STOP')">
+            <i class="fas fa-arrow-up"></i>
+          </button>
+          <div></div> 
+
+          <button class="d-btn" onmousedown="move('LEFT')" onmouseup="move('STOP')" ontouchstart="move('LEFT')" ontouchend="move('STOP')">
+            <i class="fas fa-arrow-left"></i>
+          </button>
+          <button class="d-btn center"><i class="fas fa-crosshairs"></i></button>
+          <button class="d-btn" onmousedown="move('RIGHT')" onmouseup="move('STOP')" ontouchstart="move('RIGHT')" ontouchend="move('STOP')">
+            <i class="fas fa-arrow-right"></i>
+          </button>
+
+          <div></div> 
+          <button class="d-btn" onmousedown="move('DOWN')" onmouseup="move('STOP')" ontouchstart="move('DOWN')" ontouchend="move('STOP')">
+            <i class="fas fa-arrow-down"></i>
+          </button>
+          <div></div> 
+        </div>
+      </div>
+      
+      <div class="actions-container">
+        <div class="action-card">
+          <h3 data-i18n="auto_plant">Automated Planting</h3>
+          <p style="font-size:12px; color:#666;">Rack Down -> Disc -> Flap</p>
+          <button class="big-btn btn-plant" onclick="triggerAction('PLANTATION')" data-i18n="start_planting">START PLANTING</button>
+        </div>
+        <div class="action-card">
+          <h3 data-i18n="smart_water">Smart Irrigation</h3>
+          <p style="font-size:12px; color:#666;">Sense -> Calculate -> Pump</p>
+          <button class="big-btn btn-water" onclick="triggerAction('IRRIGATION')" data-i18n="start_watering">START WATERING</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="status-terminal" id="terminal">
+      <div class="log-line"><span class="log-time">[System]</span> <span class="log-msg">Ready...</span></div>
+    </div>
+
+  </div>
+
+  <script src="script.js"></script>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getDatabase, ref, set, push, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+    //⚠️ REPLACE WITH YOUR FIREBASE CONFIG
+  const firebaseConfig = {
+    apiKey: "AIzaSyATzKfgr33EINt4u0R0ZhFdNsxamVdcESI",
+    authDomain: "kissan-agriculture-sih.firebaseapp.com",
+    databaseURL: "https://kissan-agriculture-sih-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "kissan-agriculture-sih",
+    storageBucket: "kissan-agriculture-sih.firebasestorage.app",
+    messagingSenderId: "351965727798",
+    appId: "1:351965727798:web:5562e5befcd15c14261c97",
+    measurementId: "G-JYHXVTWGK3"
+  };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // --- SENSOR LISTENER ---
+    onValue(ref(db, 'rover/sensors'), (snap) => {
+        const d = snap.val();
+        if(d) {
+            document.getElementById('rTemp').innerText = (d.temperature || 0) + '°C';
+            document.getElementById('rHum').innerText = (d.humidity || 0) + '%';
+            document.getElementById('rMoist').innerText = (d.moisture || 0) + '%';
+        }
+    });
+
+    const cropStages = {
+      'turmeric': ['अंकुरण', 'वनस्पति', 'प्रकंद'],
+      'ginger': ['अंकुरण', 'विकास', 'कटाई'],
+      'potato': ['अंकुरण', 'कंद गठन', 'परिपक्वता'],
+      'maize': ['अंकुरण', 'फूल आना', 'दाना भरना']
+    };
+
+    window.selectCrop = function(crop, el) {
+      document.querySelectorAll('.crop-card').forEach(c => c.classList.remove('selected'));
+      el.classList.add('selected');
+      
+      const wrapper = document.getElementById('stageWrapper');
+      const container = document.getElementById('stageButtons');
+      wrapper.style.display = 'block';
+      container.innerHTML = '';
+
+      cropStages[crop].forEach(stage => {
+        const btn = document.createElement('div');
+        btn.className = 'stage-btn';
+        btn.innerText = stage;
+        btn.onclick = () => activateRover(crop, stage, btn);
+        container.appendChild(btn);
+      });
+    }
+
+    window.activateRover = function(crop, stage, el) {
+      document.querySelectorAll('.stage-btn').forEach(b => b.classList.remove('selected'));
+      el.classList.add('selected');
+
+      document.getElementById('roverInterface').style.display = 'grid';
+      log(`Config loaded: ${crop} - ${stage}`);
+      
+      set(ref(db, 'rover/current_config'), { crop: crop, stage: stage });
+    }
+
+    window.move = function(direction) {
+      if(event && event.type === 'touchstart') event.preventDefault();
+      set(ref(db, 'rover/controls/movement'), direction);
+      if(direction !== 'STOP') log(`Command: ${direction}`);
+    }
+
+    window.triggerAction = function(type) {
+      log(`Sequence: ${type}...`);
+      push(ref(db, 'rover/commands'), {
+        action: type,
+        timestamp: Date.now(),
+        status: 'PENDING'
+      });
+    }
+
+    function log(msg) {
+      const term = document.getElementById('terminal');
+      const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+      const line = `<div class="log-line"><span class="log-time">[${time}]</span> <span class="log-msg">${msg}</span></div>`;
+      term.insertAdjacentHTML('afterbegin', line);
+    }
+  </script>
+</body>
+</html>

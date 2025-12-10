@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>किसान कृषि डैशबोर्ड</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #2E7D32 0%, #1B5E20 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .header {
+      background: rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(10px);
+      padding: 20px;
+      border-radius: 20px;
+      margin-bottom: 30px;
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+      flex-wrap: wrap;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+
+    .logo {
+      font-size: 50px;
+      animation: rotate 3s infinite;
+    }
+
+    @keyframes rotate {
+      0%, 100% { transform: rotate(0deg); }
+      50% { transform: rotate(10deg); }
+    }
+
+    .header-text h1 {
+      font-size: 32px;
+      margin-bottom: 5px;
+    }
+
+    .header-text p {
+      font-size: 14px;
+      opacity: 0.9;
+    }
+
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      background: rgba(255, 255, 255, 0.2);
+      padding: 12px 20px;
+      border-radius: 50px;
+      margin-top: 10px;
+    }
+
+    .user-avatar {
+      font-size: 30px;
+    }
+
+    .user-details {
+      text-align: left;
+    }
+
+    .user-name {
+      font-weight: bold;
+      font-size: 16px;
+    }
+
+    .logout-btn {
+      background: rgba(255, 255, 255, 0.3);
+      border: 2px solid white;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 25px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: all 0.3s;
+      font-size: 14px;
+    }
+
+    .logout-btn:hover {
+      background: white;
+      color: #2E7D32;
+    }
+
+    .main-container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .welcome-section {
+      background: rgba(255, 255, 255, 0.95);
+      padding: 30px;
+      border-radius: 20px;
+      margin-bottom: 30px;
+      text-align: center;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    }
+
+    .welcome-section h2 {
+      color: #2E7D32;
+      font-size: 28px;
+      margin-bottom: 10px;
+    }
+
+    .welcome-section p {
+      color: #666;
+      font-size: 16px;
+    }
+
+    .dashboard-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 30px;
+      margin-bottom: 30px;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 25px;
+      padding: 40px;
+      cursor: pointer;
+      transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 5px;
+      background: linear-gradient(90deg, #4CAF50, #2E7D32);
+    }
+
+    .card:hover {
+      transform: translateY(-10px) scale(1.02);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+    }
+
+    .card-icon {
+      font-size: 80px;
+      margin-bottom: 20px;
+      display: block;
+      animation: bounce 2s infinite;
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
+    }
+
+    .card:nth-child(1) .card-icon { animation-delay: 0s; }
+    .card:nth-child(2) .card-icon { animation-delay: 0.3s; }
+    .card:nth-child(3) .card-icon { animation-delay: 0.6s; }
+
+    .card-title {
+      font-size: 28px;
+      font-weight: bold;
+      color: #2E7D32;
+      margin-bottom: 15px;
+    }
+
+    .card-description {
+      font-size: 16px;
+      color: #666;
+      line-height: 1.6;
+      margin-bottom: 20px;
+    }
+
+    .card-button {
+      background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%);
+      color: white;
+      border: none;
+      padding: 15px 30px;
+      border-radius: 50px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.3s;
+      width: 100%;
+      box-shadow: 0 5px 15px rgba(46, 125, 50, 0.3);
+    }
+
+    .card-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(46, 125, 50, 0.4);
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+      margin-top: 30px;
+    }
+
+    .feature-card {
+      background: rgba(255, 255, 255, 0.95);
+      padding: 25px;
+      border-radius: 15px;
+      text-align: center;
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+      transition: all 0.3s;
+    }
+
+    .feature-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    }
+
+    .feature-icon {
+      font-size: 50px;
+      margin-bottom: 15px;
+    }
+
+    .feature-title {
+      font-size: 18px;
+      font-weight: bold;
+      color: #2E7D32;
+      margin-bottom: 10px;
+    }
+
+    .feature-description {
+      font-size: 14px;
+      color: #666;
+    }
+
+    .alerts-section {
+      background: rgba(255, 255, 255, 0.95);
+      padding: 25px;
+      border-radius: 20px;
+      margin-top: 30px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    }
+
+    .alert-item {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      padding: 15px;
+      background: #e8f5e9;
+      border-radius: 10px;
+      margin-bottom: 10px;
+      border-left: 5px solid #4CAF50;
+    }
+
+    .alert-item.warning {
+      background: #fff3e0;
+      border-left-color: #FF9800;
+    }
+
+    .alert-item.error {
+      background: #ffebee;
+      border-left-color: #f44336;
+    }
+
+    @media (max-width: 768px) {
+      .dashboard-cards {
+        grid-template-columns: 1fr;
+      }
+
+      .header {
+        flex-direction: column;
+        text-align: center;
+      }
+
+      .user-info {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .card-icon {
+        font-size: 60px;
+      }
+
+      .card-title {
+        font-size: 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="main-container">
+    <div class="header">
+      <div class="header-left">
+        <div class="logo">🌾</div>
+        <div class="header-text">
+          <h1>किसान कृषि प्रबंधन</h1>
+          <p>📍 जोरेथांग, सिक्किम</p>
+        </div>
+      </div>
+      <div class="user-info">
+        <div class="user-avatar">👨‍🌾</div>
+        <div class="user-details">
+          <div class="user-name" id="userName">किसान</div>
+          <div style="font-size: 12px; opacity: 0.8;" id="userEmail"></div>
+        </div>
+        <button class="logout-btn" onclick="logout()">🚪 लॉगआउट</button>
+      </div>
+    </div>
+
+    <div class="welcome-section">
+      <h2>🙏 स्वागत है!</h2>
+      <p>अपनी खेती को स्मार्ट तरीके से प्रबंधित करें</p>
+    </div>
+
+    <div class="dashboard-cards">
+      <!-- Card 1: Drip Irrigation -->
+      <div class="card" onclick="location.href='drip-irrigation.html'">
+        <span class="card-icon">💧</span>
+        <h3 class="card-title">ड्रिप सिंचाई</h3>
+        <p class="card-description">
+          स्वचालित सिंचाई प्रणाली को नियंत्रित करें। फसल के अनुसार पानी की मात्रा को समायोजित करें।
+        </p>
+        <button class="card-button">सिंचाई नियंत्रण खोलें →</button>
+      </div>
+
+      <!-- Card 2: Rover Control -->
+      <div class="card" onclick="location.href='rover-control.html'">
+        <span class="card-icon">🚜</span>
+        <h3 class="card-title">रोवर नियंत्रण</h3>
+        <p class="card-description">
+          कृषि रोवर को नियंत्रित करें। स्वचालित रोपण और सिंचाई करें।
+        </p>
+        <button class="card-button">रोवर नियंत्रण खोलें →</button>
+      </div>
+
+      <!-- Card 3: Data Monitoring -->
+      <div class="card" onclick="location.href='data-monitoring.html'">
+        <span class="card-icon">📊</span>
+        <h3 class="card-title">डेटा निगरानी</h3>
+        <p class="card-description">
+          मिट्टी की नमी, तापमान और आर्द्रता की वास्तविक समय निगरानी करें।
+        </p>
+        <button class="card-button">डेटा देखें →</button>
+      </div>
+    </div>
+
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">🌡️</div>
+        <div class="feature-title">तापमान निगरानी</div>
+        <div class="feature-description">वास्तविक समय में मिट्टी का तापमान</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">💦</div>
+        <div class="feature-title">नमी नियंत्रण</div>
+        <div class="feature-description">स्वचालित पानी प्रबंधन</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">🌧️</div>
+        <div class="feature-title">मौसम पूर्वानुमान</div>
+        <div class="feature-description">बारिश की भविष्यवाणी</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">📱</div>
+        <div class="feature-title">SMS अलर्ट</div>
+        <div class="feature-description">महत्वपूर्ण सूचनाएं</div>
+      </div>
+    </div>
+
+    <div class="alerts-section">
+      <h3 style="color: #2E7D32; margin-bottom: 15px; font-size: 22px;">
+        🔔 सिस्टम अलर्ट
+      </h3>
+      <div id="alertsContainer">
+        <div class="alert-item">
+          <span style="font-size: 24px;">✅</span>
+          <div>
+            <strong>सभी सिस्टम सामान्य रूप से काम कर रहे हैं</strong>
+            <div style="font-size: 12px; color: #666; margin-top: 5px;">
+              अंतिम अपडेट: <span id="lastUpdate">लोड हो रहा है...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+    import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+    // ⚠️ REPLACE WITH YOUR FIREBASE CONFIG
+  const firebaseConfig = {
+    apiKey: "AIzaSyATzKfgr33EINt4u0R0ZhFdNsxamVdcESI",
+    authDomain: "kissan-agriculture-sih.firebaseapp.com",
+    databaseURL: "https://kissan-agriculture-sih-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "kissan-agriculture-sih",
+    storageBucket: "kissan-agriculture-sih.firebasestorage.app",
+    messagingSenderId: "351965727798",
+    appId: "1:351965727798:web:5562e5befcd15c14261c97",
+    measurementId: "G-JYHXVTWGK3"
+  };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const database = getDatabase(app);
+
+    // Check authentication
+    onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        // Not logged in, redirect to login page
+        window.location.href = 'index.html';
+      } else {
+        // Display user info
+        document.getElementById('userName').textContent = user.email.split('@')[0];
+        document.getElementById('userEmail').textContent = user.email;
+        
+        // Listen to system alerts
+        monitorAlerts();
+      }
+    });
+
+    // Logout function
+    window.logout = async function() {
+      if (confirm('क्या आप वाकई लॉगआउट करना चाहते हैं?')) {
+        try {
+          await signOut(auth);
+          window.location.href = 'index.html';
+        } catch (error) {
+          console.error('Logout error:', error);
+          alert('लॉगआउट में त्रुटि');
+        }
+      }
+    };
+
+    // Monitor system alerts
+    function monitorAlerts() {
+      const alertsContainer = document.getElementById('alertsContainer');
+      
+      // Monitor tank level
+      onValue(ref(database, 'irrigation/tank'), (snapshot) => {
+        const data = snapshot.val();
+        if (data && data.level_percent < 20) {
+          addAlert('warning', '⚠️ पानी की टंकी का स्तर कम है', `टंकी स्तर: ${data.level_percent}%`);
+        }
+      });
+
+      // Monitor rain prediction
+      onValue(ref(database, 'irrigation/weather'), (snapshot) => {
+        const data = snapshot.val();
+        if (data && data.rain_predicted) {
+          addAlert('warning', '🌧️ बारिश की संभावना', data.alert_message || 'अगले 1-2 दिनों में बारिश हो सकती है');
+        }
+      });
+
+      // Monitor system errors
+      onValue(ref(database, 'system/alerts'), (snapshot) => {
+        const alerts = snapshot.val();
+        if (alerts) {
+          if (alerts.sensor_failure) {
+            addAlert('error', '❌ सेंसर त्रुटि', 'सेंसर काम नहीं कर रहा है');
+          }
+          if (alerts.gsm_offline) {
+            addAlert('error', '📡 GSM ऑफलाइन', 'इंटरनेट कनेक्शन नहीं है');
+          }
+        }
+      });
+
+      // Update last update time
+      document.getElementById('lastUpdate').textContent = new Date().toLocaleString('hi-IN');
+    }
+
+    function addAlert(type, title, message) {
+      const alertsContainer = document.getElementById('alertsContainer');
+      const existingAlert = Array.from(alertsContainer.children).find(
+        el => el.querySelector('strong')?.textContent === title
+      );
+      
+      if (!existingAlert) {
+        const alertHTML = `
+          <div class="alert-item ${type}">
+            <span style="font-size: 24px;">${type === 'warning' ? '⚠️' : '❌'}</span>
+            <div>
+              <strong>${title}</strong>
+              <div style="font-size: 12px; color: #666; margin-top: 5px;">${message}</div>
+            </div>
+          </div>
+        `;
+        alertsContainer.insertAdjacentHTML('beforeend', alertHTML);
+      }
+    }
+  </script>
+</body>
+</html>
