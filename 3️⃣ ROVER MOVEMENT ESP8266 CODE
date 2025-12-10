@@ -1,15 +1,15 @@
 #include <ESP8266WiFi.h>
 #include <FirebaseESP8266.h>
 
-// =================== 1. PHONE HOTSPOT CREDENTIALS ===================
-const char* ssid = "YOUR_HOTSPOT_NAME";
-const char* password = "YOUR_HOTSPOT_PASSWORD";
+// =================== WIFI CREDENTIALS (YOUR MOBILE HOTSPOT) ===================
+const char* ssid = "YOUR_MOBILE_HOTSPOT_NAME";     // Change this!
+const char* password = "YOUR_HOTSPOT_PASSWORD";    // Change this!
 
-// =================== 2. FIREBASE CONFIG ===================
+// =================== FIREBASE ===================
 #define DATABASE_URL "https://kissan-agriculture-sih-default-rtdb.asia-southeast1.firebasedatabase.app"
 #define DATABASE_SECRET "YOUR_DATABASE_SECRET_HERE"
 
-// =================== MOTOR PINS (L298N) ===================
+// =================== MOTOR PINS ===================
 #define ENA D0
 #define IN1 D1
 #define IN2 D2
@@ -22,87 +22,159 @@ FirebaseData firebaseData;
 FirebaseAuth auth;
 FirebaseConfig config;
 
-String currentDirection = "STOP";
-int motorSpeed = 255; // Max Speed
+// =================== VARIABLES ===================
+int motorSpeed = 200;
+String lastCommand = "STOP";
+unsigned long lastCommandCheck = 0;
+const unsigned long COMMAND_CHECK_INTERVAL = 300; // Check every 0.3 seconds
 
 void setup() {
   Serial.begin(9600);
-  Serial.println("\n===== ROVER MOVEMENT CONTROLLER =====");
+  Serial.println("\n╔════════════════════════════════════╗");
+  Serial.println("║   ROVER MOVEMENT CONTROLLER        ║");
+  Serial.println("╚════════════════════════════════════╝");
   
-  // Init Pins
-  pinMode(ENA, OUTPUT); pinMode(ENB, OUTPUT);
-  pinMode(IN1, OUTPUT); pinMode(IN2, OUTPUT);
-  pinMode(IN3, OUTPUT); pinMode(IN4, OUTPUT);
+  // Initialize motor pins
+  pinMode(ENA, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+  pinMode(ENB, OUTPUT);
+  
   stopMotors();
-
-  // Connect to Phone Hotspot
+  
+  // Connect to mobile hotspot
+  Serial.println("\n📱 Connecting to mobile hotspot...");
   WiFi.begin(ssid, password);
-  Serial.print("Connecting to Hotspot");
-  while (WiFi.status() != WL_CONNECTED) {
+  
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
     delay(500);
     Serial.print(".");
+    attempts++;
   }
-  Serial.println("\n✓ Connected to Internet!");
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
-
-  // Init Firebase
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\n✓ WiFi Connected!");
+    Serial.print("✓ IP Address: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("\n✗ WiFi connection failed!");
+    Serial.println("⚠️ Check hotspot name and password!");
+  }
+  
+  // Initialize Firebase
+  Serial.println("🔥 Initializing Firebase...");
   config.database_url = DATABASE_URL;
   config.signer.tokens.legacy_token = DATABASE_SECRET;
+  
   Firebase.begin(&config, &auth);
   Firebase.reconnectWiFi(true);
-  Serial.println("🔥 Firebase Initialized");
+  
+  if (Firebase.setString(firebaseData, "/rover/movement_module", "ONLINE")) {
+    Serial.println("✓ Firebase connected!");
+  } else {
+    Serial.println("✗ Firebase failed: " + firebaseData.errorReason());
+  }
+  
+  Serial.println("\n╔════════════════════════════════════╗");
+  Serial.println("║         SYSTEM READY               ║");
+  Serial.println("╚════════════════════════════════════╝\n");
 }
 
 void loop() {
-  // Listen for Movement Command from Dashboard
-  // Path: /rover/controls/movement
+  unsigned long currentMillis = millis();
+  
+  // Check WiFi connection
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("⚠️ WiFi disconnected! Reconnecting...");
+    WiFi.reconnect();
+    delay(5000);
+  }
+  
+  // Check Firebase for movement commands
+  if (currentMillis - lastCommandCheck >= COMMAND_CHECK_INTERVAL) {
+    lastCommandCheck = currentMillis;
+    checkMovementCommands();
+  }
+  
+  delay(10);
+}
+
+void checkMovementCommands() {
+  // Read movement command from Firebase
   if (Firebase.getString(firebaseData, "/rover/controls/movement")) {
-    String newDirection = firebaseData.stringData();
+    String command = firebaseData.stringData();
     
-    // Only act if direction changed to prevent stuttering
-    if (newDirection != currentDirection) {
-      currentDirection = newDirection;
-      Serial.println("Command: " + currentDirection);
-      
-      if (currentDirection == "UP") moveForward();
-      else if (currentDirection == "DOWN") moveBackward();
-      else if (currentDirection == "LEFT") turnLeft();
-      else if (currentDirection == "RIGHT") turnRight();
-      else stopMotors();
+    // Only execute if command changed
+    if (command != lastCommand) {
+      lastCommand = command;
+      executeCommand(command);
     }
-  } else {
-      // If error or empty, stop for safety
-      // stopMotors(); 
   }
 }
 
-// =================== MOTOR FUNCTIONS ===================
+void executeCommand(String command) {
+  Serial.println("Command: " + command);
+  
+  if (command == "FORWARD") {
+    moveForward();
+  } else if (command == "BACKWARD") {
+    moveBackward();
+  } else if (command == "LEFT") {
+    turnLeft();
+  } else if (command == "RIGHT") {
+    turnRight();
+  } else if (command == "STOP") {
+    stopMotors();
+  }
+}
+
 void moveForward() {
-  analogWrite(ENA, motorSpeed); analogWrite(ENB, motorSpeed);
-  digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
-  digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
+  Serial.println("→ Moving FORWARD");
+  analogWrite(ENA, motorSpeed);
+  analogWrite(ENB, motorSpeed);
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
 }
 
 void moveBackward() {
-  analogWrite(ENA, motorSpeed); analogWrite(ENB, motorSpeed);
-  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
+  Serial.println("← Moving BACKWARD");
+  analogWrite(ENA, motorSpeed);
+  analogWrite(ENB, motorSpeed);
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
 }
 
 void turnLeft() {
-  analogWrite(ENA, motorSpeed); analogWrite(ENB, motorSpeed);
-  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
-  digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
+  Serial.println("↺ Turning LEFT");
+  analogWrite(ENA, motorSpeed);
+  analogWrite(ENB, motorSpeed);
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
 }
 
 void turnRight() {
-  analogWrite(ENA, motorSpeed); analogWrite(ENB, motorSpeed);
-  digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
-  digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
+  Serial.println("↻ Turning RIGHT");
+  analogWrite(ENA, motorSpeed);
+  analogWrite(ENB, motorSpeed);
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
 }
 
 void stopMotors() {
-  digitalWrite(IN1, LOW); digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW); digitalWrite(IN4, LOW);
+  Serial.println("⏹ STOP");
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
 }
