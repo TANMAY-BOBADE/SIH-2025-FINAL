@@ -15,19 +15,19 @@ const char* password = "12345678"; // REPLACE WITH YOUR PASSWORD
 #define DISC_SERVO_PIN 13
 #define FLAP_SERVO_PIN 15
 
-// RACK MOTORS (L298N)
-#define MOTOR_A_FWD 26
-#define MOTOR_A_BWD 27
-#define MOTOR_B_FWD 14
-#define MOTOR_B_BWD 12
-#define MOTOR_ENA 25
-#define MOTOR_ENB 33
+// RACK MOTORS (Updated to your specific pinout)
+#define MOTOR_A_FWD 27
+#define MOTOR_A_BWD 26
+#define MOTOR_B_FWD 25
+#define MOTOR_B_BWD 33
+#define MOTOR_ENA 14
+#define MOTOR_ENB 32
 
 // SENSORS & PUMP
 #define DHTPIN 4
 #define DHTTYPE DHT11
 #define SOIL_MOISTURE_PIN 34
-#define PUMP_RELAY_PIN 32
+#define PUMP_RELAY_PIN 12
 
 // =================== SETTINGS ===================
 #define SERVO_STOP_VAL 90 
@@ -49,8 +49,6 @@ FirebaseConfig config;
 
 // =================== VARIABLES ===================
 float calculatedDuration = 0; 
-bool isPumping = false;
-unsigned long pumpStartTime = 0;
 
 void setup() {
   Serial.begin(115200);
@@ -130,20 +128,8 @@ void loop() {
     lastSensorUpdate = currentMillis;
     updateSensors();
   }
-
-  // 3. PUMP TIMER
-  if (isPumping && (currentMillis - pumpStartTime >= calculatedDuration)) {
-    digitalWrite(PUMP_RELAY_PIN, RELAY_OFF_LOGIC);
-    isPumping = false;
-    Serial.println("💧 Pump OFF - Watering Complete!");
-    
-    // Auto-Close Flap after watering
-    flapServo.write(0);
-    Serial.println("🚪 Flap auto-closed after watering");
-    
-    // Update Firebase status
-    Firebase.setString(firebaseData, "/rover/status", "WATERING_COMPLETE");
-  }
+  
+  // NOTE: Pump Timer removed from loop. Logic is now blocking in STEP 7.
 }
 
 void executeCommand(String cmd) {
@@ -163,7 +149,7 @@ void executeCommand(String cmd) {
 
   // --- STEP 2: RACK DOWN ---
   else if (cmd == "RACK_DOWN") {
-    Serial.println("⬇️ STEP 2: Moving Rack DOWN...");
+    Serial.println("⬇ STEP 2: Moving Rack DOWN...");
     digitalWrite(MOTOR_A_FWD, LOW); 
     digitalWrite(MOTOR_A_BWD, HIGH);
     digitalWrite(MOTOR_B_FWD, HIGH); 
@@ -221,7 +207,8 @@ void executeCommand(String cmd) {
     float h = dht.readHumidity();
     float t = dht.readTemperature();
     float rawM = analogRead(SOIL_MOISTURE_PIN);
-    float m = map(rawM, 4095, 1500, 0, 100); 
+    // USING YOUR CALIBRATED MAPPING:
+    float m = map(rawM, 3200, 2670, 0, 100); 
     m = constrain(m, 0, 100);
 
     // 5. Display Results
@@ -230,16 +217,16 @@ void executeCommand(String cmd) {
     Serial.printf("🌾 Crop: %s\n", crop.c_str());
     Serial.printf("📈 Stage: %s\n", stage.c_str());
     Serial.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    Serial.printf("🌡️  Temperature: %.1f°C (Max Limit: %.1f°C) ", t, db_temp_max);
-    if(t > db_temp_max) Serial.println("⚠️ HIGH");
+    Serial.printf("🌡  Temperature: %.1f°C (Max Limit: %.1f°C) ", t, db_temp_max);
+    if(t > db_temp_max) Serial.println("⚠ HIGH");
     else Serial.println("✅ OK");
     
     Serial.printf("💧 Humidity: %.1f%% (Max Limit: %.1f%%) ", h, db_hum_max);
-    if(h > db_hum_max) Serial.println("⚠️ HIGH");
+    if(h > db_hum_max) Serial.println("⚠ HIGH");
     else Serial.println("✅ OK");
     
     Serial.printf("🌱 Soil Moisture: %.1f%% (Min Required: %.1f%%) ", m, db_moist_min);
-    if(m < db_moist_min) Serial.println("⚠️ LOW - NEEDS WATER");
+    if(m < db_moist_min) Serial.println("⚠ LOW - NEEDS WATER");
     else Serial.println("✅ SUFFICIENT");
     Serial.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
@@ -255,7 +242,7 @@ void executeCommand(String cmd) {
       Serial.println("\n💡 WATER CALCULATION:");
       Serial.printf("   Moisture Deficit: %.1f%%\n", deficit);
       Serial.printf("   Water Needed: %.1f mL\n", waterNeeded);
-      Serial.printf("   ⏱️  Pump Duration: %.0f ms (%.1f seconds)\n", calculatedDuration, calculatedDuration/1000.0);
+      Serial.printf("   ⏱  Pump Duration: %.0f ms (%.1f seconds)\n", calculatedDuration, calculatedDuration/1000.0);
       Serial.println("✅ Ready for Step 7 (Watering)");
       
       // Store in Firebase for dashboard display
@@ -263,7 +250,7 @@ void executeCommand(String cmd) {
     } else {
       calculatedDuration = 0;
       Serial.println("\n✅ Soil moisture is sufficient!");
-      Serial.println("ℹ️  No watering needed for this location");
+      Serial.println("ℹ  No watering needed for this location");
       Firebase.setFloat(firebaseData, "/rover/plantation/water_duration_calculated", 0);
     }
     Serial.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
@@ -278,7 +265,7 @@ void executeCommand(String cmd) {
 
   // --- STEP 6: RACK UP ---
   else if (cmd == "RACK_UP") {
-    Serial.println("⬆️ STEP 6: Moving Rack UP...");
+    Serial.println("⬆ STEP 6: Moving Rack UP...");
     digitalWrite(MOTOR_A_FWD, HIGH); 
     digitalWrite(MOTOR_A_BWD, LOW);
     digitalWrite(MOTOR_B_FWD, LOW); 
@@ -290,7 +277,7 @@ void executeCommand(String cmd) {
 
   // --- STOP RACK ---
   else if (cmd == "RACK_STOP") {
-    Serial.println("⏸️ RACK STOP: Stopping all rack motors...");
+    Serial.println("⏸ RACK STOP: Stopping all rack motors...");
     digitalWrite(MOTOR_ENA, LOW); 
     digitalWrite(MOTOR_ENB, LOW);
     digitalWrite(MOTOR_A_FWD, LOW); 
@@ -300,21 +287,32 @@ void executeCommand(String cmd) {
     Serial.println("✅ Rack motors stopped");
   }
 
-  // --- STEP 7: START WATERING ---
+  // --- STEP 7: START WATERING (BLOCKING LOGIC) ---
   else if (cmd == "STEP7_WATER") {
     Serial.println("💦 STEP 7: Starting Watering Process...");
     
     if (calculatedDuration > 0) {
-      Serial.printf("⏱️  Starting pump for %.0f ms (%.1f seconds)\n", calculatedDuration, calculatedDuration/1000.0);
-      digitalWrite(PUMP_RELAY_PIN, RELAY_ON_LOGIC);
-      pumpStartTime = millis();
-      isPumping = true;
-      Serial.println("✅ Pump activated!");
+      Serial.printf("⏱  Starting pump for %.0f ms (%.1f seconds)\n", calculatedDuration, calculatedDuration/1000.0);
       
-      // Update Firebase
+      // 1. Turn Pump ON
+      digitalWrite(PUMP_RELAY_PIN, RELAY_ON_LOGIC);
       Firebase.setString(firebaseData, "/rover/status", "WATERING");
+      Serial.println("✅ Pump ON - Waiting...");
+
+      // 2. BLOCKING DELAY (Stops execution to ensure pump stays on)
+      delay(calculatedDuration);
+
+      // 3. Turn Pump OFF
+      digitalWrite(PUMP_RELAY_PIN, RELAY_OFF_LOGIC);
+      Serial.println("🛑 Pump OFF - Watering Complete!");
+      
+      // 4. Auto-Close Flap & Update Status
+      flapServo.write(0);
+      Serial.println("🚪 Flap auto-closed");
+      Firebase.setString(firebaseData, "/rover/status", "WATERING_COMPLETE");
+
     } else {
-      Serial.println("⚠️ ERROR: No water duration calculated!");
+      Serial.println("⚠ ERROR: No water duration calculated!");
       Serial.println("👉 Please run STEP 4 (Sense & Calculate) first");
       Firebase.setString(firebaseData, "/rover/status", "ERROR_NO_CALC");
     }
@@ -330,12 +328,12 @@ void updateSensors() {
   float h = dht.readHumidity();
   float t = dht.readTemperature();
   float rawM = analogRead(SOIL_MOISTURE_PIN);
-  float m = map(rawM, 4095, 1500, 0, 100);
+  float m = map(rawM, 3200, 2670, 0, 100);
   m = constrain(m, 0, 100);
 
   // Check for sensor errors
   if (isnan(h) || isnan(t)) {
-    Serial.println("⚠️ DHT sensor read failed!");
+    Serial.println("⚠ DHT sensor read failed!");
     return;
   }
 
@@ -346,5 +344,5 @@ void updateSensors() {
   Firebase.setInt(firebaseData, "/rover/sensors/timestamp", millis());
 
   // Print to serial (optional - comment out to reduce spam)
-  // Serial.printf("📊 Sensors: T=%.1f°C, H=%.1f%%, M=%.1f%%\n", t, h, m);
+  Serial.printf("📊 Sensors: T=%.1f°C, H=%.1f%%, M=%.1f%%\n", t, h, m);
 }
